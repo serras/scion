@@ -199,6 +199,7 @@ locEndLine l = locLine l
 viewLoc :: Location
         -> (LocSource, Int, Int, Int, Int)
            -- ^ source, start line, start column, end line, end column.
+viewLoc (LocNone txt)=(OtherSrc txt,-1,-1,-1,-1)
 viewLoc l = (locSource l, locStartLine l, locStartCol l,
              locEndLine l, locEndCol l)
 
