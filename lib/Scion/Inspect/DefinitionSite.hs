@@ -75,6 +75,8 @@ mkSiteDB base_dir ty_things = foldl' go emptyDefSiteDB ty_things
     go db (ADataCon datacon) | is_boring_datacon datacon = db
     go db (AnId nm)
       | isDictonaryId nm || not (is_interesting_id nm) = db
+    -- don't polute with things for which we have no location
+    go db ty_thing | not (GHC.isGoodSrcSpan (getSrcSpan ty_thing)) = db
     go db ty_thing =
        addToDB (getOccString ty_thing)
                (ghcSpanToLocation base_dir (getSrcSpan ty_thing))
