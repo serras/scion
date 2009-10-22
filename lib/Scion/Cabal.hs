@@ -81,6 +81,12 @@ instance IsComponent CabalComponent where
 scionDistDir :: FilePath
 scionDistDir = ".dist-scion"
 
+-- | Set up a Cabal component, (re-)configuring it if necessary.
+--
+-- Checks whether an existing configuration result exists on disk and
+-- configures the project if not.  Similarly, if the existing config
+-- is outdated the project is reconfigured.
+--
 cabalComponentInit :: CabalComponent -> ScionM (Maybe String)
 cabalComponentInit c = do
   -- TODO: verify that components exist in cabal file
@@ -119,6 +125,7 @@ cabalFile :: CabalComponent -> FilePath
 cabalFile (Library f) = f
 cabalFile (Executable f _) = f
 
+-- | Return GHC 'Target's corresponding to this component.
 cabalTargets :: CabalComponent -> ScionM [Target]
 cabalTargets (Library f) = do
   pd <- cabal_package f
@@ -153,19 +160,19 @@ cabal_build_info f = do
   let root_dir = dropFileName f
   io $ getPersistBuildConfig (root_dir </> scionDistDir)
 
+-- | Return command line flags for the component.
 cabalDynFlags :: CabalComponent -> ScionM [String]
 cabalDynFlags component = do
    lbi <- cabal_build_info (cabalFile component)
    bi <- component_build_info component (localPkgDescr lbi)
-   let odir = buildDir lbi
-   let odir2=case component of
-   	Executable _ exeName' -> odir </> (dropExtension exeName')
-	_ -> odir
-   let flags = ghcOptions lbi bi odir2
-   return (case component of 
-   	Executable _ exeName' -> (flags ++ ["-o",(odir2 </> (exeName' <.>
-                                   (if null $ takeExtension exeName' then exeExtension else "")))])
-	_ -> flags)
+   let odir0 = buildDir lbi
+   let odir 
+         | Executable _ exeName' <- component
+           = odir0 </> dropExtension exeName'
+         | otherwise
+           = odir0
+   let opts = ghcOptions lbi bi odir
+   return $ opts ++ output_file_opts odir
  where
    component_build_info (Library _) pd
      | Just lib <- PD.library pd = return (PD.libBuildInfo lib)
@@ -176,9 +183,15 @@ cabalDynFlags component = do
        [] -> error "no exe" --noExeError n
        _ -> error $ "Multiple executables, named \"" ++ n ++ 
                     "\" found.  This is weird..."
-   component_build_info _ _ =
-       dieHard "component_build_info: impossible case"
 
+   output_file_opts odir =
+     case component of
+       Executable _ exeName' -> 
+         ["-o", odir </> exeName' <.>
+                  (if null $ takeExtension exeName'
+                   then exeExtension
+                   else "")]
+       _ -> []
 
 -- | Return all components of the specified Cabal file.
 -- 
@@ -231,6 +244,9 @@ cabalConfigurations _cabal _type' _scionDefaultOnly = do
     else list'
 -}
 -- | Run the steps that Cabal would call before building.
+--
+-- The main purpose is to run various pre-processors like @c2hs@,
+-- @alex@, @happy@, etc.
 -- 
 preprocessPackage :: FilePath
                   -> ScionM ()
