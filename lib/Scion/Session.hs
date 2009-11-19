@@ -15,6 +15,7 @@ module Scion.Session where
 -- Imports
 import Prelude hiding ( mod )
 import GHC hiding ( flags, load )
+import DriverPhases (Phase(..),HscSource(..))
 import HscTypes ( srcErrorMessages, SourceError, isBootSummary )
 import Exception
 import StringBuffer (stringToStringBuffer)
@@ -32,7 +33,7 @@ import Data.Maybe       ( isJust )
 import Data.Monoid
 import Data.Time.Clock  ( getCurrentTime, diffUTCTime )
 import System.Directory ( getCurrentDirectory, canonicalizePath )
-import System.FilePath  ( isRelative, makeRelative, normalise )
+import System.FilePath  ( isRelative, makeRelative, normalise, takeExtension )
 import System.Time      ( getClockTime )
 
 import Control.Exception
@@ -402,9 +403,13 @@ backgroundTypecheckArbitrary fname contents = do
     Nothing -> do
       return $ Left "Could not find file in module graph."
 
-    Just modsum ->
+    Just modsum -> do
+      -- http://hackage.haskell.org/trac/ghc/ticket/3675
+      let phase = case (takeExtension fname) of
+                ".lhs" -> Just $ Unlit HsSrcFile
+                _     -> Nothing
       ghandle (\(e' :: GhcException) -> do
-          removeTarget (TargetFile fname Nothing)
+          removeTarget (TargetFile fname phase)
           -- add target without content
           addTarget (Target (TargetFile fname Nothing) False Nothing)
           load LoadAllTargets >>= getDefSiteDB
@@ -414,7 +419,7 @@ backgroundTypecheckArbitrary fname contents = do
         -- get contents
         sb <- liftIO $ stringToStringBuffer contents
         ct <- liftIO $ getClockTime
-        let tgt = TargetFile fname Nothing
+        let tgt = TargetFile fname phase
         -- I don't think we use TargetModule anywhere but hey
         removeTarget (TargetModule modName)
         -- remove old target
