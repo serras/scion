@@ -168,7 +168,7 @@ loadComponent' comp output = do
    setSessionDynFlags dflags
    setComponentTargets comp
    rslt <- load LoadAllTargets
-   setSessionDynFlags dflags    -- XXX: Why is this necessary?
+   setSessionDynFlags dflags0    -- Remove LinkBinary
    getDefSiteDB rslt
    return rslt
    
