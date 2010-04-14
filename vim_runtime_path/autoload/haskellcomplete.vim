@@ -168,7 +168,13 @@ fun! haskellcomplete#SaneHook()
     " move to first error
     if firstError > 0 | exec "crewind ".firstError | endif
   else
-    cclose
+    " if g:scion_quickfixes_always_open is set to true (non-zero) do not close
+    " quickfix window even when there are not any errors.
+    if exists("g:scion_quickfixes_always_open") && g:scion_quickfixes_always_open
+      call setqflist([{'text' : 'No errors'}])
+    else
+      cclose
+    endif
   endif
 endf
 
@@ -243,7 +249,7 @@ endfunction
 
 function! s:DefPython()
 python << PYTHONEOF
-import sys, tokenize, cStringIO, types, socket, string, vim, popen2, os
+import sys, tokenize, cStringIO, types, socket, string, vim, os
 from subprocess import Popen, PIPE
 
 scion_log_stdout = vim.eval('exists("g:scion_log_stdout") && g:scion_log_stdout')
@@ -344,7 +350,7 @@ def evalscion(str):
     try:
       server_connection.send(str)
     except:
-      vim.command('echom "%s"'% ("(re)connecting to scion"))
+      vim.command('echom "(re)connecting to scion"')
       connectscion()
       server_connection.send(str)
     return server_connection.receive()
