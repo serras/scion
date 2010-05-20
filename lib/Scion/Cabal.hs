@@ -316,9 +316,9 @@ configureCabalProject root_dir dist_dir _extra_args = do
            -- TODO: parse flags properly
            }
    setWorkingDir root_dir
-   ghandle (\(_ :: IOError) ->
+   ghandle (\(e :: IOError) ->
                io $ throwIO $ 
-                CannotOpenCabalProject "Failed to configure") $ do
+                CannotOpenCabalProject ("Failed to configure: " ++ (show e))) $ do
 #if CABAL_VERSION < 107
      lbi <- io $ configure (Left gen_pkg_descr, (Nothing, []))
                            config_flags
