@@ -10,7 +10,7 @@
 -- Outline representation of source code
 --
 module Scion.Types.Outline 
-  ( OutlineDef(..),
+  ( OutlineDef(..),TokenDef(..),
     extractNames,trimLocationFile
   )
 where
@@ -27,6 +27,11 @@ data OutlineDef = OutlineDef
     od_block      :: Location,
     od_parentName :: Maybe (Name,String)
   }
+
+data TokenDef = TokenDef {
+        td_name :: String,
+        td_loc :: Location
+    }
 
 extractNames:: [OutlineDef] -> [Name]
 extractNames

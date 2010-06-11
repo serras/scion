@@ -172,6 +172,7 @@ allCommands =
     , cmdDumpNameDB
     , cmdToplevelNames
     , cmdOutline
+    , cmdTokens
     ]
 
 ------------------------------------------------------------------------------
@@ -372,6 +373,13 @@ instance JSON OutlineDef where
   	 Nothing -> [])
   readJSON _ = fail "OutlineDef"
 
+instance JSON TokenDef where
+  showJSON t | (src, l0, c0, l1, c1) <- viewLoc $ td_loc t =
+    makeObject $ 
+      [("name", str $ td_name t)
+      ,("region", JSArray (map showJSON [l0,c0,l1,c1]))]
+  readJSON _ = fail "TokenDef"
+
 cmdListSupportedLanguages :: Cmd
 cmdListSupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd
   where cmd = return (map toJSString supportedLanguages)
@@ -520,6 +528,19 @@ cmdOutline =
         let f = if trim then trimLocationFile else id
         return $ f $ outline root_dir tcm 
       _ -> return []
+
+cmdTokens :: Cmd
+cmdTokens = 
+     Cmd "tokens" $ reqArg' "file" fromJSString $ cmd
+  where cmd fname = do
+          root_dir <- projectRootDir
+          mb_modsum <- filePathToProjectModule fname
+          case mb_modsum of
+            Nothing -> do
+              return $ Left "Could not find file in module graph."
+            Just modsum -> do
+                ts<-tokens root_dir $ ms_mod modsum
+                return $ Right ts
 
 cmdDumpSources :: Cmd
 cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd

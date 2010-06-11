@@ -1,6 +1,6 @@
 {-# LANGUAGE PatternGuards, CPP,
              FlexibleInstances, FlexibleContexts, MultiParamTypeClasses,
-             TypeSynonymInstances #-}
+             TypeSynonymInstances, StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans -fno-warn-name-shadowing #-}
 -- |
 -- Module      : Scion.Inspect
@@ -16,7 +16,7 @@
 module Scion.Inspect 
   ( typeOfResult, prettyResult
   , typeDecls, classDecls, familyDecls
-  , toplevelNames, outline
+  , toplevelNames, outline, tokens
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
   ) where
@@ -27,17 +27,21 @@ import Scion.Inspect.Find
 import Scion.Inspect.TypeOf
 import Scion.Types.Notes
 import Scion.Types.Outline
+import Scion.Types
 
 import GHC
+import Lexer
 import Bag
 import Var ( varType )
 import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
+import Data.Data
 import Data.Generics.Biplate
 import Data.Generics.UniplateStr hiding ( Str (..) )
 import qualified Data.Generics.Str as U 
+import Data.Maybe
 import Outputable
 import GHC.SYB.Utils
 import Data.List ( foldl' )
@@ -211,6 +215,20 @@ outline base_dir m
        ++ instBinds base_dir grp
 outline _ _ = []
 
+tokens :: FilePath -> Module -> ScionM ([TokenDef])
+tokens base_dir m = do
+        ts<-getTokenStream m
+        return $ catMaybes $ map (mkTokenDef base_dir) ts
+
+mkTokenDef :: FilePath -> Located Token -> Maybe TokenDef
+mkTokenDef base_dir (L sp t) | Just s<-mkTokenName t=Just $ TokenDef s (ghcSpanToLocation base_dir sp)
+mkTokenDef _ _=Nothing
+
+mkTokenName :: Token -> Maybe String
+mkTokenName t= Just $ showConstr $ toConstr t
+
+deriving instance Typeable Token
+deriving instance Data Token
 ------------------------------------------------------------------------------
 
 
