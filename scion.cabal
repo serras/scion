@@ -1,9 +1,9 @@
 name:            scion
-version:         0.1.0.3
+version:         0.1.0.4
 license:         BSD3
 license-file:    docs/LICENSE
 author:          Thomas Schilling <nominolo@googlemail.com>
-maintainer:      Thomas Schilling <nominolo@googlemail.com>
+maintainer:      Thomas Schilling <nominolo@googlemail.com>, JP Moresmau <jpmoresmau@gmail.com>
 homepage:        http://github.com/nominolo/scion
 synopsis:        Haskell IDE library
 description:
