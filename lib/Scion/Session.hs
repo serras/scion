@@ -15,6 +15,7 @@ module Scion.Session where
 -- Imports
 import Prelude hiding ( mod )
 import GHC hiding ( flags, load )
+import DynFlags
 import DriverPhases (Phase(..),HscSource(..))
 import HscTypes ( srcErrorMessages, SourceError, isBootSummary )
 import Exception
@@ -159,12 +160,14 @@ loadComponent' comp output = do
    -- correctly before looking for the targets.
    setComponentDynFlags comp
    dflags0 <- getSessionDynFlags
-   let dflags
+   let dflags1
          | output = dflags0{ hscTarget = defaultObjectTarget
                           , ghcMode = CompManager
                           , ghcLink = LinkBinary
                           }
          | otherwise = dflags0
+   -- DefinitionSite is not up to date if we have pregenerated .hi or .o files 
+   let dflags=dopt_set dflags1 Opt_ForceRecomp
    setSessionDynFlags dflags
    setComponentTargets comp
    rslt <- load LoadAllTargets
