@@ -56,10 +56,11 @@ library
     list-tries ,
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
-    old-time     == 1.0.*
+    old-time     == 1.0.*,
+    derive
 
   if flag(cabal_1_8)
-    build-depends:  Cabal == 1.8.*
+    build-depends:  Cabal >= 1.8
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:  Cabal == 1.6.*
@@ -81,7 +82,7 @@ library
     Scion.Session,
     Scion.Cabal,
     Scion.Ghc,
-    Scion
+    Scion, Scion.Packages
 
   if flag(testing)
     build-depends: QuickCheck == 2.*
@@ -126,10 +127,11 @@ executable scion-server
     list-tries ,
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
-    old-time     == 1.0.*
+    old-time     == 1.0.*,
+    derive
 
   if flag(cabal_1_8)
-    build-depends:  Cabal == 1.8.*
+    build-depends:  Cabal >= 1.8
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:  Cabal == 1.6.*
@@ -154,12 +156,10 @@ executable scion-server
     Scion.Types.Outline
     Scion.Utils
     Scion.Ghc
-    
-
     Scion.Server.Commands
     Scion.Server.ConnectionIO
     Scion.Server.Generic
-    Scion.Server.Protocol
+    Scion.Server.Protocol, Scion.Packages
                  
   ghc-options: -Wall
   extensions:      CPP, PatternGuards

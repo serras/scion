@@ -45,6 +45,7 @@ import Data.List ( nub )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )
 import Text.JSON
+import Text.JSON.Generic
 import qualified Data.Map as M
 import qualified Data.MultiSet as MS
 
@@ -173,6 +174,9 @@ allCommands =
     , cmdToplevelNames
     , cmdOutline
     , cmdTokens
+    , cmdParseCabal 
+    , cmdParseCabalArbitrary
+    , cmdCabalDependencies
     ]
 
 ------------------------------------------------------------------------------
@@ -412,6 +416,21 @@ cmdListCabalComponents =
     Cmd "list-cabal-components" $ reqArg' "cabal-file" fromJSString $ cmd
   where cmd cabal_file = cabalProjectComponents cabal_file
 
+cmdParseCabal :: Cmd
+cmdParseCabal = 
+    Cmd "parse-cabal" $ reqArg' "cabal-file" fromJSString $ cmd
+  where cmd cabal_file = liftM toJSON $ cabalParse cabal_file
+
+cmdParseCabalArbitrary :: Cmd
+cmdParseCabalArbitrary = 
+    Cmd "parse-cabal-arbitrary" $ reqArg' "contents" fromJSString $ cmd
+  where cmd cabal_contents = cabalParseArbitrary cabal_contents
+  
+cmdCabalDependencies :: Cmd
+cmdCabalDependencies = 
+    Cmd "cabal-dependencies" $ reqArg' "cabal-file" fromJSString $ cmd
+  where cmd cabal_file = cabalDependencies cabal_file 
+  
 -- return all cabal configurations.
 -- currently this just globs for * /setup-config
 -- in the future you may write a config file describing the most common configuration settings

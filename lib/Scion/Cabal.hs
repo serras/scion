@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, CPP #-}
+{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, CPP#-}
 -- |
 -- Module      : Scion.Cabal
 -- Copyright   : (c) Thomas Schilling 2008
@@ -11,24 +11,29 @@
 -- Cabal-related functionality.
 -- 
 module Scion.Cabal 
-  ( CabalComponent(..), 
-    scionDistDir, cabalProjectComponents,
+  ( CabalComponent(..), CabalPackage(..),
+    scionDistDir, cabalProjectComponents, cabalParse, cabalParseArbitrary, cabalDependencies,
     cabalConfigurations, preprocessPackage )
   where
 
 import Scion.Types
+import Scion.Packages
 
 import Exception
-import GHC hiding ( load )
+import GHC hiding ( load, TyCon )
 import GHC.Paths  ( ghc, ghc_pkg )
 import Data.Typeable ()
 
 import Text.JSON
+import Text.JSON.Generic
 
 import Control.Monad
 import Data.Data
-import Data.List        ( intercalate )
+
+import Data.Function (on)
+import Data.List        ( intercalate,sortBy,partition )
 import Data.Maybe
+import qualified Data.Map as DM
 import System.Directory ( doesFileExist, getDirectoryContents,
                           getModificationTime )
 import System.FilePath ( (</>), dropFileName, takeExtension,dropExtension,(<.>) )
@@ -43,6 +48,10 @@ import Distribution.Simple.Build ( initialBuildSteps )
 import Distribution.Simple.BuildPaths ( exeExtension )
 import Distribution.Simple.PreProcess ( knownSuffixHandlers )
 import qualified Distribution.PackageDescription as PD
+import Distribution.Package
+import Distribution.InstalledPackageInfo
+import Distribution.Version
+
 import qualified Distribution.PackageDescription.Parse as PD
 import qualified Distribution.PackageDescription.Configuration as PD
 
@@ -57,6 +66,7 @@ import Distribution.Simple.Program
 import Distribution.Simple.Setup 
                         ( defaultConfigFlags, ConfigFlags(..),
                           Flag(..) )
+import Distribution.Text
 
 -- * Exception Types
 -- also see ScionError Exception 
@@ -67,10 +77,24 @@ instance Exception CannotOpenCabalProject where
   toException  = scionToException
   fromException = scionFromException
 
+data CannotListPackages = CannotListPackages String
+     deriving (Show, Typeable)
+instance Exception CannotListPackages where
+  toException  = scionToException
+  fromException = scionFromException
+
 data CabalComponent
   = Library FilePath
   | Executable FilePath String
   deriving (Eq, Show)
+
+data CabalPackage=CabalPackage {
+        cp_name::String,
+        cp_version::String,
+        cp_exposed::Bool,
+        cp_dependent::[CabalComponent]
+        }
+   deriving (Eq, Show)
 
 instance IsComponent CabalComponent where
 
@@ -217,15 +241,55 @@ cabalDynFlags component = do
 cabalProjectComponents :: FilePath -- ^ The .cabal file
                        -> ScionM [Component]
 cabalProjectComponents cabal_file = do
-  ghandle (\(_ :: ExitCode) ->
-                io $ throwIO $ CannotOpenCabalProject cabal_file) $ do
-    gpd <- liftIO $ PD.readPackageDescription V.silent cabal_file 
+    gpd <- cabalParse cabal_file
     let pd = PD.flattenPackageDescription gpd
     return $ map Component $
       (if isJust (PD.library pd) then [Library cabal_file] else []) ++
       [ Executable cabal_file (PD.exeName e)
       | e <- PD.executables pd ]
 
+
+cabalParse :: FilePath -> ScionM PD.GenericPackageDescription
+cabalParse cabal_file = do  
+  ghandle (\(_ :: ExitCode) ->
+                io $ throwIO $ CannotOpenCabalProject cabal_file) $ do
+    gpd <- liftIO $ PD.readPackageDescription V.silent cabal_file 
+    return gpd
+
+{--runScion $ cabalDependencies "D:\\dev\\haskell\\jp-github\\runtime-New_configuration\\Haskell0\\Haskell0.cabal"--}
+cabalDependencies :: FilePath -> ScionM [(FilePath,[CabalPackage])]
+cabalDependencies cabal_file = do
+    gpd <- cabalParse cabal_file
+    ghandle (\(e :: IOError) ->
+               io $ throwIO $ CannotListPackages $ show e) $ do
+            pkgs<-liftIO $ getPkgInfos
+           
+            let pkgsMap=map (\(a,b)->(a,buildPkgMap b)) pkgs -- build the map of package by name with ordered version (more recent first)
+            let pd = PD.flattenPackageDescription gpd
+            let allC= (if isJust (PD.library pd) then [Library cabal_file] else []) ++
+                      [ Executable cabal_file (PD.exeName e)
+                      | e <- PD.executables pd ]
+            let gdeps=PD.buildDepends pd
+            -- list of all dependencies
+            let deps=(maybe [] (\l->map (\d->(Library cabal_file,d)) $ PD.targetBuildDepends $ PD.libBuildInfo l) $ PD.library pd)  -- library 
+                      ++ (concatMap (\e->map (\d->(Executable cabal_file (PD.exeName e),d)) $ PD.targetBuildDepends $ PD.buildInfo e) $ PD.executables pd) -- executables
+                      ++ (concatMap (\c->map (\d->(c,d)) gdeps) allC) -- project level
+            let cpkgs=(map (\(fp,pkgMap)->(fp,DM.map (\ipis->getDep ipis deps []) pkgMap)) pkgsMap) :: [(FilePath,DM.Map String [CabalPackage])]
+            return $ ((map (\(fp,cpMap)->(fp,concat $ DM.elems cpMap)) cpkgs)::[(FilePath,[CabalPackage])])
+            where 
+                buildPkgMap :: [InstalledPackageInfo] -> DM.Map String [InstalledPackageInfo]
+                buildPkgMap pkgs=DM.map (sortBy (flip (compare `on` (pkgVersion . sourcePackageId)))) $ DM.fromListWith (++) (map (\i->((display $ pkgName $ sourcePackageId i),[i]) ) pkgs) --concatenates all version and sort them, most recent first
+                getDep :: [InstalledPackageInfo] -> [(CabalComponent,Dependency)]-> [CabalPackage] -> [CabalPackage]
+                getDep [] _ acc= acc
+                getDep (InstalledPackageInfo{sourcePackageId=i,exposed=e}:xs) deps acc= let
+                        (ds,deps2)=partition (\(_,Dependency n v)->((pkgName i)==n) && withinRange (pkgVersion i) v) deps -- find if version is referenced, remove the referencing component so that it doesn't match an older version
+                        in getDep xs deps2 (CabalPackage (display $ pkgName i) (display $ pkgVersion i) e (map fst ds): acc) -- build CabalPackage structure
+
+
+cabalParseArbitrary :: String -> ScionM (PD.ParseResult PD.GenericPackageDescription)
+cabalParseArbitrary cabal_contents = do  
+  let pr = PD.parsePackageDescription cabal_contents 
+  return pr
 
 -- returns a list of cabal configurations
 -- dist: those who have been configured * /setup-config 
@@ -355,3 +419,20 @@ instance JSON CabalComponent where
   showJSON (Executable f n) =
       makeObject [("executable", JSString (toJSString n)),
                   ("cabal-file", JSString (toJSString f))]
+
+instance JSON CabalPackage where
+        readJSON (JSObject obj) | 
+                Ok n <- lookupKey obj "name",
+                Ok v <- lookupKey obj "version"=do
+                        JSBool e <- lookupKey obj "exposed"
+                        ds <- readJSON =<< lookupKey obj "dependent"
+                        return $ CabalPackage (fromJSString n) (fromJSString v) e ds
+        readJSON _ = fail "CabalPackage"
+        showJSON (CabalPackage n v e ds)=makeObject [("name",JSString (toJSString n)),("version",JSString (toJSString v)),("exposed",JSBool e),("dependent",showJSON ds)]
+
+instance (Data a) => JSON (PD.ParseResult a) where
+        readJSON _= undefined
+        showJSON (PD.ParseFailed pf)=makeObject [("error",JSString (toJSString $ show pf))]
+        showJSON (PD.ParseOk wrns a)=makeObject [("warnings",JSArray (map (JSString . toJSString . show) wrns)),
+                ("result",toJSON a)]
+
