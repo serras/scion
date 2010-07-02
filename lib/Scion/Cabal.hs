@@ -13,7 +13,7 @@
 module Scion.Cabal 
   ( CabalComponent(..), CabalPackage(..),
     scionDistDir, cabalProjectComponents, cabalParse, cabalParseArbitrary, cabalDependencies,
-    cabalConfigurations, preprocessPackage )
+    cabalConfigurations, preprocessPackage, dependencies )
   where
 
 import Scion.Types
@@ -263,28 +263,66 @@ cabalDependencies cabal_file = do
     ghandle (\(e :: IOError) ->
                io $ throwIO $ CannotListPackages $ show e) $ do
             pkgs<-liftIO $ getPkgInfos
-           
-            let pkgsMap=map (\(a,b)->(a,buildPkgMap b)) pkgs -- build the map of package by name with ordered version (more recent first)
-            let pd = PD.flattenPackageDescription gpd
-            let allC= (if isJust (PD.library pd) then [Library cabal_file] else []) ++
+            return $ dependencies cabal_file gpd pkgs
+    
+    {--        
+dependencies :: FilePath -> PD.GenericPackageDescription -> [(FilePath,[InstalledPackageInfo])] -> [(FilePath,[CabalPackage])]
+dependencies cabal_file gpd pkgs=let
+        pkgsMap=foldr buildPkgMap DM.empty pkgs -- build the map of package by name with ordered version (more recent first)
+        pd = PD.flattenPackageDescription gpd
+        allC= (if isJust (PD.library pd) then [Library cabal_file] else []) ++
                       [ Executable cabal_file (PD.exeName e)
                       | e <- PD.executables pd ]
-            let gdeps=PD.buildDepends pd
+                      
+        gdeps=PD.buildDepends pd
             -- list of all dependencies
-            let deps=(maybe [] (\l->map (\d->(Library cabal_file,d)) $ PD.targetBuildDepends $ PD.libBuildInfo l) $ PD.library pd)  -- library 
-                      ++ (concatMap (\e->map (\d->(Executable cabal_file (PD.exeName e),d)) $ PD.targetBuildDepends $ PD.buildInfo e) $ PD.executables pd) -- executables
-                      ++ (concatMap (\c->map (\d->(c,d)) gdeps) allC) -- project level
-            let cpkgs=(map (\(fp,pkgMap)->(fp,DM.map (\ipis->getDep ipis deps []) pkgMap)) pkgsMap) :: [(FilePath,DM.Map String [CabalPackage])]
-            return $ ((map (\(fp,cpMap)->(fp,concat $ DM.elems cpMap)) cpkgs)::[(FilePath,[CabalPackage])])
-            where 
-                buildPkgMap :: [InstalledPackageInfo] -> DM.Map String [InstalledPackageInfo]
-                buildPkgMap pkgs=DM.map (sortBy (flip (compare `on` (pkgVersion . sourcePackageId)))) $ DM.fromListWith (++) (map (\i->((display $ pkgName $ sourcePackageId i),[i]) ) pkgs) --concatenates all version and sort them, most recent first
+            -- flatten in fact pushes up all dependencies, so for the moment we can't distinguish between different components
+        --deps=(maybe [] (\l->map (\d->(Library cabal_file,d)) $ PD.targetBuildDepends $ PD.libBuildInfo l) $ PD.library pd)  -- library 
+              --        ++ (concatMap (\e->map (\d->(Executable cabal_file (PD.exeName e),d)) $ PD.targetBuildDepends $ PD.buildInfo e) $ PD.executables pd) -- executables
+               --       ++ 
+        deps= concatMap (\c->map (\d->(c,d)) gdeps) allC -- project level
+        cpkgs=(map (\(fp,pkgMap)->(fp,DM.map (\ipis->getDep ipis deps []) pkgMap)) pkgsMap) :: [(FilePath,DM.Map String [CabalPackage])]
+        in ((map (\(fp,cpMap)->(fp,concat $ DM.elems cpMap)) cpkgs)::[(FilePath,[CabalPackage])])
+        where 
+                buildPkgMap :: (String,[InstalledPackageInfo]) -> DM.Map String [(String,InstalledPackageInfo)] -> DM.Map String  [(String,InstalledPackageInfo)]
+                buildPkgMap ipis=DM.map (sortBy (flip (compare `on` (pkgVersion . sourcePackageId)))) $ DM.fromListWith (++) (map (\i->((display $ pkgName $ sourcePackageId i),[i]) ) ipis) --concatenates all version and sort them, most recent first
                 getDep :: [InstalledPackageInfo] -> [(CabalComponent,Dependency)]-> [CabalPackage] -> [CabalPackage]
                 getDep [] _ acc= acc
                 getDep (InstalledPackageInfo{sourcePackageId=i,exposed=e}:xs) deps acc= let
                         (ds,deps2)=partition (\(_,Dependency n v)->((pkgName i)==n) && withinRange (pkgVersion i) v) deps -- find if version is referenced, remove the referencing component so that it doesn't match an older version
                         in getDep xs deps2 (CabalPackage (display $ pkgName i) (display $ pkgVersion i) e (map fst ds): acc) -- build CabalPackage structure
-
+        --}
+        
+dependencies :: FilePath -> PD.GenericPackageDescription -> [(FilePath,[InstalledPackageInfo])] -> [(FilePath,[CabalPackage])]
+dependencies cabal_file gpd pkgs=let
+        pkgsMap=foldr buildPkgMap DM.empty pkgs -- build the map of package by name with ordered version (more recent first)
+        pd = PD.flattenPackageDescription gpd
+        allC= (if isJust (PD.library pd) then [Library cabal_file] else []) ++
+                      [ Executable cabal_file (PD.exeName e)
+                      | e <- PD.executables pd ]
+        gdeps=PD.buildDepends pd
+        cpkgs=concat $ DM.elems $ DM.map (\ipis->getDep allC ipis gdeps []) pkgsMap
+        in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,b)->(a,[])) pkgs))
+        where 
+                buildPkgMap :: (FilePath,[InstalledPackageInfo]) -> DM.Map String [(FilePath,InstalledPackageInfo)] -> DM.Map String  [(FilePath,InstalledPackageInfo)]
+                buildPkgMap (fp,ipis) m=foldr (\i dm->let
+                        key=display $ pkgName $ sourcePackageId i
+                        vals=DM.lookup key dm
+                        newvals=case vals of
+                                Nothing->[(fp,i)]
+                                Just l->sortBy (flip (compare `on` (pkgVersion . sourcePackageId . snd))) ((fp,i):l)
+                        in DM.insert key newvals dm
+                        ) m ipis
+                getDep :: [CabalComponent] -> [(FilePath,InstalledPackageInfo)] -> [Dependency]-> [(FilePath,CabalPackage)] -> [(FilePath,CabalPackage)]
+                getDep _ [] _ acc= acc
+                getDep allC ((fp,InstalledPackageInfo{sourcePackageId=i,exposed=e}):xs) deps acc= let
+                        (ds,deps2)=partition (\(Dependency n v)->((pkgName i)==n) && withinRange (pkgVersion i) v) deps -- find if version is referenced, remove the referencing component so that it doesn't match an older version
+                        cps=if null ds then [] else allC
+                        in getDep allC xs deps2 ((fp,CabalPackage (display $ pkgName i) (display $ pkgVersion i) e cps): acc) -- build CabalPackage structure
+                
+                --DM.map (sortBy (flip (compare `on` (pkgVersion . sourcePackageId . snd)))) $ DM.fromListWith (++) (map (\i->((display $ pkgName $ sourcePackageId i),[i]) ) ipis) --concatenates all version and sort them, most recent first
+        
+        
 
 cabalParseArbitrary :: String -> ScionM (PD.ParseResult PD.GenericPackageDescription)
 cabalParseArbitrary cabal_contents = do  
