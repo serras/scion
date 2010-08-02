@@ -67,7 +67,7 @@ library
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
-  extensions:      CPP, PatternGuards
+  extensions:      CPP, PatternGuards, DeriveDataTypeable
   exposed-modules:
     Scion.Types,
     Scion.Types.ExtraInstances,
@@ -162,7 +162,7 @@ executable scion-server
     Scion.Server.Protocol, Scion.Packages
                  
   ghc-options: -Wall
-  extensions:      CPP, PatternGuards
+  extensions:      CPP, PatternGuards, DeriveDataTypeable
 
   if flag(testing)
     build-depends: QuickCheck == 2.*
@@ -216,7 +216,7 @@ executable scion-test
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
-  extensions:      CPP, PatternGuards
+  extensions:      CPP, PatternGuards, DeriveDataTypeable
   other-modules:
     Scion.Types,
     Scion.Types.ExtraInstances,

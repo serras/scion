@@ -46,6 +46,10 @@ import Outputable
 import GHC.SYB.Utils
 import Data.List ( foldl' )
 
+#if __GLASGOS_HASKELL__ < 612
+import StringBuffer
+#endif
+
 #ifdef SCION_DEBUG
 --import FastString
 import Test.QuickCheck()
@@ -229,6 +233,12 @@ mkTokenName t= Just $ showConstr $ toConstr t
 
 deriving instance Typeable Token
 deriving instance Data Token
+
+#if CABAL_VERSION == 106
+deriving instance Typeable StringBuffer
+deriving instance Data StringBuffer
+#endif
+
 ------------------------------------------------------------------------------
 
 

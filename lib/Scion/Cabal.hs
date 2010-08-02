@@ -304,6 +304,9 @@ dependencies cabal_file gpd pkgs=let
         cpkgs=concat $ DM.elems $ DM.map (\ipis->getDep allC ipis gdeps []) pkgsMap
         in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,b)->(a,[])) pkgs))
         where 
+#if CABAL_VERSION == 106
+		sourcePackageId = package
+#endif
                 buildPkgMap :: (FilePath,[InstalledPackageInfo]) -> DM.Map String [(FilePath,InstalledPackageInfo)] -> DM.Map String  [(FilePath,InstalledPackageInfo)]
                 buildPkgMap (fp,ipis) m=foldr (\i dm->let
                         key=display $ pkgName $ sourcePackageId i
@@ -315,7 +318,11 @@ dependencies cabal_file gpd pkgs=let
                         ) m ipis
                 getDep :: [CabalComponent] -> [(FilePath,InstalledPackageInfo)] -> [Dependency]-> [(FilePath,CabalPackage)] -> [(FilePath,CabalPackage)]
                 getDep _ [] _ acc= acc
+#if CABAL_VERSION == 106
+                getDep allC ((fp,InstalledPackageInfo{package=i,exposed=e}):xs) deps acc= let
+#else
                 getDep allC ((fp,InstalledPackageInfo{sourcePackageId=i,exposed=e}):xs) deps acc= let
+#endif
                         (ds,deps2)=partition (\(Dependency n v)->((pkgName i)==n) && withinRange (pkgVersion i) v) deps -- find if version is referenced, remove the referencing component so that it doesn't match an older version
                         cps=if null ds then [] else allC
                         in getDep allC xs deps2 ((fp,CabalPackage (display $ pkgName i) (display $ pkgVersion i) e cps): acc) -- build CabalPackage structure

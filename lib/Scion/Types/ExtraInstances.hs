@@ -16,6 +16,10 @@ import Data.Data
 import Data.List as DL
 import Data.DeriveTH
 
+#if CABAL_VERSION == 106
+import Data.String
+#endif
+
 import Distribution.Compiler
 import Distribution.ModuleName
 import Distribution.License
@@ -73,6 +77,11 @@ instance Data ModuleName where
 
      toConstr _ = tyC
      dataTypeOf _ = ty_T
+
+#if CABAL_VERSION == 106
+instance IsString ModuleName where
+     fromString = simple
+#endif
 
 tyC :: Constr
 tyC = mkConstr ty_T ("ModuleName") [] Prefix
