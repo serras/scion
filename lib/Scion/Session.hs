@@ -342,9 +342,13 @@ backgroundTypecheckFile fname0 = do
           backgroundTypecheckFile' mempty fname
 
        _otherwise -> do
+
           mb_modsum <- filePathToProjectModule fname
           case mb_modsum of
             Nothing -> do
+              -- do not keep previous state, otherwise commands like outline will return the previous file results!
+              modifySessionState (\s -> s { bgTcCache = Nothing
+                                          , lastCompResult = mempty })
               return $ Left "Could not find file in module graph."
             Just modsum -> do
               (_, rslt) <- setContextForBGTC modsum
