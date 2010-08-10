@@ -16,7 +16,7 @@
 module Scion.Inspect 
   ( typeOfResult, prettyResult
   , typeDecls, classDecls, familyDecls
-  , toplevelNames, outline, tokens
+  , toplevelNames, outline, tokensArbitrary
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
   ) where
@@ -29,20 +29,21 @@ import Scion.Types.Notes
 import Scion.Types.Outline
 import Scion.Types
 
-import GHC
+import ErrUtils
+import FastString
 import Lexer
 import Bag
 import Var ( varType )
 import DataCon ( dataConUserType )
+import SrcLoc
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
+
 import Data.Data
 import Data.Generics.Biplate
-import Data.Generics.UniplateStr hiding ( Str (..) )
 import qualified Data.Generics.Str as U 
 import Data.Maybe
-import Outputable
 import GHC.SYB.Utils
 import Data.List ( foldl' )
 
@@ -223,6 +224,24 @@ tokens :: FilePath -> Module -> ScionM ([TokenDef])
 tokens base_dir m = do
         ts<-getTokenStream m
         return $ catMaybes $ map (mkTokenDef base_dir) ts
+
+tokensArbitrary :: FilePath -> String -> ScionM (Either Note [TokenDef])
+tokensArbitrary base_dir contents = do
+        sb <- liftIO $ stringToStringBuffer contents
+        dflags0 <- getSessionDynFlags
+        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString contents) 0 0) dflags0
+        case prTS of
+                POk _ ts        -> return $ Right $ catMaybes $ map (mkTokenDef base_dir) (filter ofInterest ts)
+                PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
+                
+                --(Note ErrorNote (ghcSpanToLocation base_dir loc) (showSDocForUser (errMsgContext msg) msg))
+
+ofInterest :: Located Token -> Bool
+ofInterest (L sp _) | 
+                sl <-(srcSpanStartLine sp),
+                sc <- (srcSpanStartCol sp),
+                el <- (srcSpanEndLine sp),
+                ec <- (srcSpanEndCol sp)   = (sl < el) || (sc < ec)
 
 mkTokenDef :: FilePath -> Located Token -> Maybe TokenDef
 mkTokenDef base_dir (L sp t) | Just s<-mkTokenName t=Just $ TokenDef s (ghcSpanToLocation base_dir sp)

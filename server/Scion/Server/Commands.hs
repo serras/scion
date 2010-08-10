@@ -177,6 +177,7 @@ allCommands =
     , cmdParseCabal 
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
+    , cmdModuleGraph
     ]
 
 ------------------------------------------------------------------------------
@@ -379,9 +380,10 @@ instance JSON OutlineDef where
 
 instance JSON TokenDef where
   showJSON t | (src, l0, c0, l1, c1) <- viewLoc $ td_loc t =
-    makeObject $ 
-      [("name", str $ td_name t)
-      ,("region", JSArray (map showJSON [l0,c0,l1,c1]))]
+    --makeObject $ 
+    --  [("name", str $ td_name t)
+    --  ,("region", JSArray (map showJSON [l0,c0,l1,c1]))]
+    JSArray ((str $ td_name t): (map showJSON [l0,c0,l1,c1]))
   readJSON _ = fail "TokenDef"
 
 cmdListSupportedLanguages :: Cmd
@@ -550,16 +552,17 @@ cmdOutline =
 
 cmdTokens :: Cmd
 cmdTokens = 
-     Cmd "tokens" $ reqArg' "file" fromJSString $ cmd
-  where cmd fname = do
+     Cmd "tokens" $ reqArg' "contents" fromJSString $ cmd
+  where cmd contents = do
           root_dir <- projectRootDir
-          mb_modsum <- filePathToProjectModule fname
+          tokensArbitrary root_dir contents 
+          {--mb_modsum <- filePathToProjectModule fname
           case mb_modsum of
             Nothing -> do
               return $ Left "Could not find file in module graph."
             Just modsum -> do
                 ts<-tokens root_dir $ ms_mod modsum
-                return $ Right ts
+                return $ Right ts--}
 
 cmdDumpSources :: Cmd
 cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
@@ -625,6 +628,14 @@ cmdDumpModuleGraph =
       mg <- getModuleGraph
       liftIO $ printDump (ppr mg)
       return ()
+
+cmdModuleGraph :: Cmd
+cmdModuleGraph =
+   Cmd "module-graph" $ noArgs $ cmd
+  where
+    cmd = do
+      mg <- getModuleGraph
+      return $ map (showSDoc . ppr . moduleName . ms_mod) mg
 
 cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
