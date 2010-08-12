@@ -394,7 +394,7 @@ instance JSON FileComp where
   readJSON (JSObject obj)
     | Ok s <- lookupKey obj "file" =
         return $ FileComp (fromJSString s)
-    | otherwise = fail "cabal file"
+    | otherwise = fail "file slot missing"
   readJSON j = fail $ "filecomp not an object" ++ show j
   showJSON (FileComp n) =
       makeObject [("file", JSString (toJSString n))]
