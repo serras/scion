@@ -170,7 +170,7 @@ cabalTargets (Executable f name) = do
       let proj_root = dropFileName f
       let others = PD.otherModules (PD.buildInfo exe)
       let main_mods =
-              [ proj_root </> search_path </> PD.modulePath exe 
+              [ (if (search_path /= ".") then proj_root </> search_path else proj_root) </> PD.modulePath exe  
               | search_path <- PD.hsSourceDirs (PD.buildInfo exe)]
       existing_main_mods <- filterM (liftIO . doesFileExist) main_mods
       let targets = map (\main_mod -> Target (TargetFile main_mod Nothing) True Nothing) (take 1 existing_main_mods)
