@@ -234,7 +234,7 @@ executable scion-test
     Scion,
     Scion.Packages,
     Test.Utils,
-    Test.GHC.Gen, Test.CabalTest
+    Test.GHC.Gen, Test.CabalTest, Test.InspectTest
 
   cpp-options:   -DSCION_DEBUG
 

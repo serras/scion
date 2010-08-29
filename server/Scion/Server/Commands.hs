@@ -174,6 +174,7 @@ allCommands =
     , cmdToplevelNames
     , cmdOutline
     , cmdTokens
+    , cmdTokenTypes
     , cmdParseCabal 
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
@@ -556,6 +557,15 @@ cmdTokens =
   where cmd contents = do
           root_dir <- projectRootDir
           tokensArbitrary root_dir contents 
+
+cmdTokenTypes :: Cmd
+cmdTokenTypes = 
+     Cmd "token-types" $ reqArg' "contents" fromJSString 
+      <&>  optArg' "literate" False decodeBool
+     $ cmd
+  where cmd contents literate= do
+          root_dir <- projectRootDir
+          tokenTypesArbitrary root_dir contents literate
           {--mb_modsum <- filePathToProjectModule fname
           case mb_modsum of
             Nothing -> do

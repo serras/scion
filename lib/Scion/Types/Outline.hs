@@ -32,6 +32,7 @@ data TokenDef = TokenDef {
         td_name :: String,
         td_loc :: Location
     }
+        deriving (Show,Eq)
 
 extractNames:: [OutlineDef] -> [Name]
 extractNames
