@@ -1,9 +1,14 @@
 
 module Test.InspectTest where
 
+import Scion
 import Scion.Inspect
+import Scion.Types
 import Scion.Types.Notes
 import Scion.Types.Outline
+
+import System.Directory
+import System.FilePath
 
 import Test.HUnit
 
@@ -42,3 +47,17 @@ testLiterate= TestLabel "testLiterate" (TestCase (
         assertEqual "second tt is not correct" (TokenDef "DL" (mkLocation (OtherSrc "<interactive>") 3 1 3 11)) (t2)
         assertEqual ("content is not what expected: "++ s2) "\n  module Main\n\n  where\n  import Data.Map\n" s2
         ))
+
+perf:: IO()
+perf = do
+        base_dir <- getCurrentDirectory
+        putStrLn base_dir
+        let file= base_dir </> "lib" </> "Scion" </> "Cabal.hs"
+        contents<-readFile file
+        putStrLn (show $ length $ contents)
+        r<-runScion $ do
+                r<-tokenTypesArbitrary base_dir contents False
+                return r
+        case r of 
+                Left n -> putStrLn (show n)
+                Right tts-> putStrLn (show $ length $ tts)

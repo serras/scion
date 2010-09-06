@@ -146,13 +146,13 @@ setComponentTargets (Component c) = do
 -- 
 loadComponent :: Component
 	      -> ScionM CompilationResult
-loadComponent comp = loadComponent' comp False
+loadComponent comp = loadComponent' comp defaultLoadOptions
 
 loadComponent' :: Component
-	       -> Bool -- ^ Should we build on disk?
+	       -> LoadOptions -- ^ Should we build on disk?, etc
                -> ScionM CompilationResult
                   -- ^ The compilation result.
-loadComponent' comp output = do
+loadComponent' comp options = do
    -- TODO: group warnings by file
    resetSessionState
    setActiveComponent comp
@@ -161,13 +161,15 @@ loadComponent' comp output = do
    setComponentDynFlags comp
    dflags0 <- getSessionDynFlags
    let dflags1
-         | output = dflags0{ hscTarget = defaultObjectTarget
+         | lo_output options = dflags0{ hscTarget = defaultObjectTarget
                           , ghcMode = CompManager
                           , ghcLink = LinkBinary
                           }
          | otherwise = dflags0
    -- DefinitionSite is not up to date if we have pregenerated .hi or .o files 
-   let dflags=dopt_set dflags1 Opt_ForceRecomp
+   let dflags
+        | lo_forcerecomp options=dopt_set dflags1 Opt_ForceRecomp
+        | otherwise = dflags1
    setSessionDynFlags dflags
    setComponentTargets comp
    rslt <- load LoadAllTargets

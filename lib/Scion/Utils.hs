@@ -25,17 +25,18 @@ import Data.Maybe ( fromMaybe )
 
 import Data.Char (isLower, isUpper)
 
-import Text.JSON
+import Text.JSON.AttoJSON
+import qualified Data.ByteString.Char8 as S
 
 import Data.Foldable (foldlM)
 
 import System.FilePath
 
-import System.Directory (doesFileExist)
+--import System.Directory (doesFileExist)
 
 import System.IO (openFile, hPutStrLn, hClose, IOMode(..))
 
-import Data.List (isPrefixOf)
+--import Data.List (isPrefixOf)
 
 thingsAroundPoint :: (Int, Int) -> [Located n] -> [Located n]
 thingsAroundPoint pt ls = [ l | l <- ls, spans (getLoc l) pt ]
@@ -77,7 +78,6 @@ ifM cm tm em = do
 
 ------------------------------------------------------------------------------
 
-
 -- an alternative to the broken Fuzzy module
 -- match sH simpleHTTP
 -- match siH simpleHTTP
@@ -95,41 +95,41 @@ camelCaseMatch [] _ = False
 camelCaseMatch _ [] = False
 
 
-instance JSON CabalConfiguration where
-  readJSON (JSObject obj)
-    | Ok "build-configuration" <- lookupKey obj "type"
-    , Ok distDir' <- lookupKey obj "dist-dir"
-    , Ok args     <- lookupKey obj "extra-args"
-    , Ok args2    <- readJSONs args
-    = return $ CabalConfiguration distDir' args2
-  readJSON _ = fail "CabalConfiguration"
-  showJSON (CabalConfiguration dd ea) = makeObject [
-        ("dist-dir", JSString (toJSString dd))
-      , ("extra-args", JSArray (map (JSString . toJSString) ea)) ]
-
-
-data ScionDefaultCabalConfig = ScionDefaultCabalConfig String
-instance JSON ScionDefaultCabalConfig where
-  readJSON (JSObject obj)
-    | Ok s <- lookupKey obj "scion-default-cabal-config"
-    = return $ ScionDefaultCabalConfig s
-  readJSON _ = fail "ScionDefaultCabalConfig"
-  showJSON (ScionDefaultCabalConfig s) = makeObject $ [ ("scion-default-cabal-config", (JSString . toJSString) s) ]
-
-readFileComponentConfig :: JSValue -> Result (String, [String])
-
-readFileComponentConfig (JSObject obj)
-    | Ok "component-file" <- lookupKey obj "type"
-    , Ok file <- lookupKey obj "file"
-    , Ok args     <- lookupKey obj "flags"
-    , Ok args2    <- readJSONs args
-    = return (file, args2)
-readFileComponentConfig _ = fail "reading component-file config"
-
-projectConfigFileFromDir :: FilePath -> FilePath
-projectConfigFileFromDir = (</> ".scion-config")
-projectConfigFromDir :: FilePath -> ScionM ScionProjectConfig
-projectConfigFromDir = parseScionProjectConfig . projectConfigFileFromDir
+--instance JSON CabalConfiguration where
+--  readJSON (JSObject obj)
+--    | Ok "build-configuration" <- lookupKey obj "type"
+--    , Ok distDir' <- lookupKey obj "dist-dir"
+--    , Ok args     <- lookupKey obj "extra-args"
+--    , Ok args2    <- readJSONs args
+--    = return $ CabalConfiguration distDir' args2
+--  readJSON _ = fail "CabalConfiguration"
+--  showJSON (CabalConfiguration dd ea) = makeObject [
+--        ("dist-dir", JSString (toJSString dd))
+--      , ("extra-args", JSArray (map (JSString . toJSString) ea)) ]
+--
+--
+--data ScionDefaultCabalConfig = ScionDefaultCabalConfig String
+--instance JSON ScionDefaultCabalConfig where
+--  readJSON (JSObject obj)
+--    | Ok s <- lookupKey obj "scion-default-cabal-config"
+--    = return $ ScionDefaultCabalConfig s
+--  readJSON _ = fail "ScionDefaultCabalConfig"
+--  showJSON (ScionDefaultCabalConfig s) = makeObject $ [ ("scion-default-cabal-config", (JSString . toJSString) s) ]
+--
+--readFileComponentConfig :: JSValue -> Result (String, [String])
+--
+--readFileComponentConfig (JSObject obj)
+--    | Ok "component-file" <- lookupKey obj "type"
+--    , Ok file <- lookupKey obj "file"
+--    , Ok args     <- lookupKey obj "flags"
+--    , Ok args2    <- readJSONs args
+--    = return (file, args2)
+--readFileComponentConfig _ = fail "reading component-file config"
+--
+--projectConfigFileFromDir :: FilePath -> FilePath
+--projectConfigFileFromDir = (</> ".scion-config")
+--projectConfigFromDir :: FilePath -> ScionM ScionProjectConfig
+--projectConfigFromDir = parseScionProjectConfig . projectConfigFileFromDir
 
 -- If the file exists append. Deleting settings you don't need is faster than looking them up.. 
 -- So let's extend this creating a complete reference?
@@ -159,26 +159,26 @@ writeSampleConfig file = do
 -- TODO ensure file handle is closed!
 -- the format of this file will change when scion matures..
 -- However it's a quick and easy way for scion, the client and users to read and write the config
-parseScionProjectConfig :: FilePath -> ScionM ScionProjectConfig
-parseScionProjectConfig path = do
-    de <- liftIO $ doesFileExist path
-    if de
-      then do
-        lines' <- liftIO $ liftM ( filter (not . isPrefixOf "//") . lines) $ readFile path
-        jsonParsed <- mapM parseLine lines'
-        foldlM parseJSON emptyScionProjectConfig jsonParsed
-      else return emptyScionProjectConfig
-  where
-    parseLine :: String -> ScionM JSValue
-    parseLine l = case decodeStrict l of
-      Ok r -> return r
-      Error msg -> scionError $ "error parsing configuration line" ++ (show l) ++ " error : " ++ msg
-    parseJSON :: ScionProjectConfig -> JSValue -> ScionM ScionProjectConfig
-    parseJSON pc json = case readJSON json of
-      Ok bc -> return $ pc { buildConfigurations = bc : buildConfigurations pc }
-      Error msg1 -> case readFileComponentConfig json of
-        Ok cf -> return $ pc { fileComponentExtraFlags = cf : fileComponentExtraFlags pc }
-        Error msg2 -> case readJSON json of
-          Ok (ScionDefaultCabalConfig name) -> return $ pc { scionDefaultCabalConfig = Just name }
-          Error msg3 -> scionError $ "invalid JSON object " ++ (show json) ++ " error :" ++ msg1 ++ "\n" ++ msg2 ++ "\n" ++ msg3
+--parseScionProjectConfig :: FilePath -> ScionM ScionProjectConfig
+--parseScionProjectConfig path = do
+--    de <- liftIO $ doesFileExist path
+--    if de
+--      then do
+--        lines' <- liftIO $ liftM ( filter (not . isPrefixOf "//") . lines) $ readFile path
+--        jsonParsed <- mapM parseLine lines'
+--        foldlM parseJSON emptyScionProjectConfig jsonParsed
+--      else return emptyScionProjectConfig
+--  where
+--    parseLine :: String -> ScionM JSValue
+--    parseLine l = case decodeStrict l of
+--      Ok r -> return r
+--      Error msg -> scionError $ "error parsing configuration line" ++ (show l) ++ " error : " ++ msg
+--    parseJSON :: ScionProjectConfig -> JSValue -> ScionM ScionProjectConfig
+--    parseJSON pc json = case readJSON json of
+--      Ok bc -> return $ pc { buildConfigurations = bc : buildConfigurations pc }
+--      Error msg1 -> case readFileComponentConfig json of
+--        Ok cf -> return $ pc { fileComponentExtraFlags = cf : fileComponentExtraFlags pc }
+--        Error msg2 -> case readJSON json of
+--          Ok (ScionDefaultCabalConfig name) -> return $ pc { scionDefaultCabalConfig = Just name }
+--          Error msg3 -> scionError $ "invalid JSON object " ++ (show json) ++ " error :" ++ msg1 ++ "\n" ++ msg2 ++ "\n" ++ msg3
 

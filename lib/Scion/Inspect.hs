@@ -29,14 +29,15 @@ import Scion.Inspect.TypeOf
 import Scion.Types.Notes
 import Scion.Types.Outline
 import Scion.Types
+import Scion.Session
 
+import DynFlags
 import ErrUtils
 import FastString
 import Lexer
 import Bag
 import Var ( varType )
 import DataCon ( dataConUserType )
-import SrcLoc
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
@@ -58,6 +59,8 @@ import StringBuffer
 --import FastString
 import Test.QuickCheck()
 import Test.GHC.Gen()
+
+
 --import Debug.Trace
 --import StaticFlags ( initStaticOpts )
 #endif
@@ -228,7 +231,7 @@ tokens base_dir m = do
         ts<-getTokenStream m
         return $ catMaybes $ map (mkTokenDef base_dir) ts
 
-tokensArbitrary :: FilePath -> String -> ScionM (Either Note [TokenDef])
+tokensArbitrary :: FilePath  -> String -> ScionM (Either Note [TokenDef])
 tokensArbitrary base_dir contents = do
         r<-ghctokensArbitrary base_dir contents
         case r of 
@@ -238,11 +241,39 @@ tokensArbitrary base_dir contents = do
 ghctokensArbitrary :: FilePath -> String -> ScionM (Either Note [Located Token])
 ghctokensArbitrary base_dir contents = do
         sb <- liftIO $ stringToStringBuffer contents
+        --setActiveComponent comp
+        --setComponentDynFlags comp
         dflags0 <- getSessionDynFlags
-        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags0
+        let dflags1 = foldl' dopt_set dflags0 lexerFlags
+        --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
+        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
+        --setSessionDynFlags dflags0
         case prTS of
                 POk _ ts        -> return $ Right $ (filter ofInterest ts)
                 PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
+
+lexerFlags :: [DynFlag]
+lexerFlags=[Opt_ForeignFunctionInterface ,
+        Opt_PArr,
+        Opt_Arrows,
+        Opt_TemplateHaskell,
+        Opt_QuasiQuotes,
+        Opt_ImplicitParams,
+        Opt_ExplicitForAll,
+        Opt_BangPatterns,
+        Opt_TypeFamilies,
+        Opt_Haddock,
+        Opt_MagicHash,
+        Opt_KindSignatures,
+        Opt_RecursiveDo,
+        Opt_DoRec,
+        Opt_Arrows,
+        Opt_UnicodeSyntax,
+        Opt_UnboxedTuples,
+        Opt_StandaloneDeriving,
+        Opt_TransformListComp,
+        Opt_NewQualifiedOperators]                
+                
                 
 ofInterest :: Located Token -> Bool
 ofInterest (L sp _) | 
@@ -256,7 +287,8 @@ tokenTypesArbitrary base_dir contents literate= do
         let (ppTs,ppC)=preprocessSource contents literate
         r<-ghctokensArbitrary base_dir ppC
         case r of 
-                Right ts->return $ Right $ sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
+                Right ts->do
+                        return $ Right $ sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
                 Left n->return $ Left n
                  
 tokenToType :: FilePath -> Located Token -> TokenDef
