@@ -322,7 +322,7 @@ preprocessSource contents literate=
                         | ('>':lCode)<-l, True<-literate=(ts2,(' ':lCode):l2,f)
                         | otherwise =addPPToken "DL" (l,c) (ts2,l2,f)  
                 addPPToken :: String -> (String,Int) -> ([TokenDef],[String],Bool) -> ([TokenDef],[String],Bool)
-                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 1 c (length l))):ts2,"":l2,f)
+                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 0 c (length l))):ts2,"":l2,f)
 
 deriving instance Typeable Token
 deriving instance Data Token
