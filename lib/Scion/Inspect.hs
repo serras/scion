@@ -304,22 +304,25 @@ mkTokenName t= Just $ showConstr $ toConstr t
 preprocessSource ::  String -> Bool -> ([TokenDef],String)
 preprocessSource contents literate=
         let 
-                p=if literate then ppSLit else ppS 
-                linesWithCount=zip (lines contents) [1..]
-                (ts,nc)=foldr p ([],[]) linesWithCount
-        in (ts,unlines nc)
+                (ts1,s2)=if literate then ppSF contents ppSLit else ([],contents) 
+                (ts2,s3)=ppSF s2 ppSCpp
+        in (ts1++ts2,s3)
         where 
-                ppS :: (String,Int) -> ([TokenDef],[String]) -> ([TokenDef],[String])
-                ppS (l,c) (ts2,l2) 
-                        | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2) 
-                        | otherwise =(ts2,l:l2)
-                ppSLit :: (String,Int) -> ([TokenDef],[String]) -> ([TokenDef],[String])
-                ppSLit (l,c) (ts2,l2) 
-                        | ('>':lCode)<-l, True<-literate=(ts2,(' ':lCode):l2)
-                        | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2) 
-                        | otherwise =addPPToken "DL" (l,c) (ts2,l2)  
-                addPPToken :: String -> (String,Int) -> ([TokenDef],[String]) -> ([TokenDef],[String])
-                addPPToken name (l,c) (ts2,l2) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 1 c (length l))):ts2,"":l2)
+                ppSF contents2 p= let
+                        linesWithCount=zip (lines contents2) [1..]
+                        (ts,nc,_)=foldl' p ([],[],False) linesWithCount
+                        in (reverse ts,unlines $ reverse nc)
+                ppSCpp :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
+                ppSCpp (ts2,l2,f) (l,c) 
+                        | f = addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l))
+                        | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l)) 
+                        | otherwise =(ts2,l:l2,False)
+                ppSLit :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
+                ppSLit (ts2,l2,f) (l,c) 
+                        | ('>':lCode)<-l, True<-literate=(ts2,(' ':lCode):l2,f)
+                        | otherwise =addPPToken "DL" (l,c) (ts2,l2,f)  
+                addPPToken :: String -> (String,Int) -> ([TokenDef],[String],Bool) -> ([TokenDef],[String],Bool)
+                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 1 c (length l))):ts2,"":l2,f)
 
 deriving instance Typeable Token
 deriving instance Data Token

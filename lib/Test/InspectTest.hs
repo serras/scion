@@ -13,7 +13,7 @@ import System.FilePath
 import Test.HUnit
 
 inspectTests :: Test
-inspectTests=TestList [testNoPreproc,testPreproc,testLiterate]
+inspectTests=TestList [testNoPreproc,testPreproc,testPreproc2Lines,testLiterate]
 
 testNoPreproc:: Test
 testNoPreproc=TestLabel "testNoPreproc" (TestCase (
@@ -34,6 +34,20 @@ testPreproc=TestLabel "testPreproc" (TestCase (
         assertEqual "first tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 4 1 4 19)) (t1)
         assertEqual "second tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 6 1 6 6)) (t2)
         assertEqual ("content is not what expected: "++ s2) "\nmodule Main\nwhere\n\nimport Data.Map\n\nmain=undefined\n" s2
+        ))       
+
+testPreproc2Lines:: Test
+testPreproc2Lines=TestLabel "testPreproc2Lines" (TestCase (
+        do
+        let s="\nmodule Main\nwhere\n#if GHC_VERSION\\\n=612\nimport Data.Map\n#endif\nmain=undefined\n"
+        let (tt,s2)=preprocessSource s False
+        assertEqual "tt is not 3" 3 (length tt)
+        let (t1:t2:t3:[])=tt
+        putStrLn $ show tt
+        assertEqual "first tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 4 1 4 16)) (t1)
+        assertEqual "second tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 5 1 5 4)) (t2)
+        assertEqual "third tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 7 1 7 6)) (t3)
+        assertEqual ("content is not what expected: "++ s2) "\nmodule Main\nwhere\n\n\nimport Data.Map\n\nmain=undefined\n" s2
         ))       
         
 testLiterate:: Test
