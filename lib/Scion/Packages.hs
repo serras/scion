@@ -31,15 +31,24 @@ getPkgInfos = do
         catch (getEnv "GHC_PKGCONF")
               (\err ->  if isDoesNotExistError err
                             then do let dir = takeDirectory $ takeDirectory ghc_pkg
-                                        path1 = dir </> "package.conf"
-                                        path2 = dir </> ".." </> ".." </> ".."
+                                        path1 = libdir </> "package.conf"
+                                        path2 = libdir </> ".." </> ".." </> ".."
+                                                       </> "inplace-datadir"
+                                                       </> "package.conf"
+                                        path3 = dir </> "package.conf"
+                                        path4 = dir </> ".." </> ".." </> ".."
                                                     </> "inplace-datadir"
                                                     </> "package.conf"
+                                        searched = [ path1, path2, path3, path4 ]
                                     exists1 <- doesFileExist path1
                                     exists2 <- doesFileExist path2
+                                    exists3 <- doesFileExist path3
+                                    exists4 <- doesFileExist path4
                                     if exists1 then return path1
                                        else if exists2 then return path2
-                                       else ioError $ userError ("Can't find package.conf: " ++ ghc_pkg)
+                                       else if exists3 then return path3
+                                       else if exists4 then return path4
+                                       else ioError $ userError ("Can't find package.conf, searched " ++ (foldl1 (++) searched))
                             else ioError err)
 
     let global_conf_dir = global_conf ++ ".d"
