@@ -254,21 +254,21 @@ ghctokensArbitrary base_dir contents = do
 lexerFlags :: [DynFlag]
 lexerFlags =
         [ Opt_ForeignFunctionInterface
-        , Opt_PArr,
-        , Opt_Arrows,
-        , Opt_TemplateHaskell,
-        , Opt_QuasiQuotes,
-        , Opt_ImplicitParams,
-        , Opt_BangPatterns, 
-        , Opt_TypeFamilies,
-        , Opt_Haddock,
-        , Opt_MagicHash,
-        , Opt_KindSignatures,
-        , Opt_RecursiveDo,
-        , Opt_UnicodeSyntax,
-        , Opt_UnboxedTuples,
-        , Opt_StandaloneDeriving,
-        , Opt_TransformListComp,
+        , Opt_PArr
+        , Opt_Arrows
+        , Opt_TemplateHaskell
+        , Opt_QuasiQuotes
+        , Opt_ImplicitParams
+        , Opt_BangPatterns
+        , Opt_TypeFamilies
+        , Opt_Haddock
+        , Opt_MagicHash
+        , Opt_KindSignatures
+        , Opt_RecursiveDo
+        , Opt_UnicodeSyntax
+        , Opt_UnboxedTuples
+        , Opt_StandaloneDeriving
+        , Opt_TransformListComp
         , Opt_NewQualifiedOperators
 #if GHC_VERSION > 611       
         , Opt_ExplicitForAll -- 6.12
