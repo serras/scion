@@ -41,7 +41,6 @@ import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
-
 import Data.Data
 import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
@@ -51,7 +50,7 @@ import Data.Maybe
 import GHC.SYB.Utils
 import Data.List ( foldl' )
 
-#if __GLASGOS_HASKELL__ < 612
+#if __GLASGOW_HASKELL__ < 612
 import StringBuffer
 #endif
 
@@ -253,26 +252,29 @@ ghctokensArbitrary base_dir contents = do
                 PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
 
 lexerFlags :: [DynFlag]
-lexerFlags=[Opt_ForeignFunctionInterface ,
+lexerFlags=[
+#if __GLASGOW_HASKELL__ >= 612
+        Opt_ExplicitForAll,
+        Opt_DoRec,
+#endif
+        Opt_ForeignFunctionInterface ,
         Opt_PArr,
         Opt_Arrows,
         Opt_TemplateHaskell,
         Opt_QuasiQuotes,
         Opt_ImplicitParams,
-        Opt_ExplicitForAll,
         Opt_BangPatterns,
         Opt_TypeFamilies,
         Opt_Haddock,
         Opt_MagicHash,
         Opt_KindSignatures,
         Opt_RecursiveDo,
-        Opt_DoRec,
         Opt_Arrows,
         Opt_UnicodeSyntax,
         Opt_UnboxedTuples,
         Opt_StandaloneDeriving,
         Opt_TransformListComp,
-        Opt_NewQualifiedOperators]                
+        Opt_NewQualifiedOperators]
                 
                 
 ofInterest :: Located Token -> Bool
@@ -457,7 +459,9 @@ tokenType  ITthreadsafe= "EK"
 tokenType  ITunsafe= "EK"
 tokenType  ITstdcallconv= "EK"
 tokenType  ITccallconv= "EK"
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  ITprimcallconv= "EK"
+#endif
 tokenType  ITmdo= "EK"
 tokenType  ITfamily= "EK"
 tokenType  ITgroup= "EK"
@@ -466,7 +470,9 @@ tokenType  ITusing= "EK"
 
         -- Pragmas
 tokenType  (ITinline_prag {})="P"          -- True <=> INLINE, False <=> NOINLINE
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  (ITinline_conlike_prag {})="P"  -- same
+#endif
 tokenType  ITspec_prag="P"                 -- SPECIALISE   
 tokenType  (ITspec_inline_prag {})="P"     -- SPECIALISE INLINE (or NOINLINE)
 tokenType  ITsource_prag="P"
@@ -478,7 +484,9 @@ tokenType  ITscc_prag="P"
 tokenType  ITgenerated_prag="P"
 tokenType  ITcore_prag="P"                 -- hdaume: core annotations
 tokenType  ITunpack_prag="P"
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  ITann_prag="P"
+#endif
 tokenType  ITclose_prag="P"
 tokenType  (IToptions_prag {})="P"
 tokenType  (ITinclude_prag {})="P"
