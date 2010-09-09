@@ -259,20 +259,22 @@ lexerFlags=[Opt_ForeignFunctionInterface ,
         Opt_TemplateHaskell,
         Opt_QuasiQuotes,
         Opt_ImplicitParams,
-        Opt_ExplicitForAll,
-        Opt_BangPatterns,
+        Opt_BangPatterns, 
         Opt_TypeFamilies,
         Opt_Haddock,
         Opt_MagicHash,
         Opt_KindSignatures,
         Opt_RecursiveDo,
-        Opt_DoRec,
-        Opt_Arrows,
         Opt_UnicodeSyntax,
         Opt_UnboxedTuples,
         Opt_StandaloneDeriving,
         Opt_TransformListComp,
-        Opt_NewQualifiedOperators]                
+        Opt_NewQualifiedOperators
+#if GHC_VERSION > 611       
+        ,Opt_ExplicitForAll -- 6.12
+        ,Opt_DoRec -- 6.12
+#endif
+        ]                
                 
                 
 ofInterest :: Located Token -> Bool
