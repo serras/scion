@@ -37,6 +37,8 @@ flag server
   default: True
 
 flag cabal_1_8
+  description: Enable the Cabal library 1.8 features
+  default: False
 
 library
   build-depends:
@@ -85,7 +87,7 @@ library
     Scion, Scion.Packages
 
   if flag(testing)
-    build-depends: QuickCheck == 2.*
+    build-depends: QuickCheck >= 2
     cpp-options:   -DSCION_DEBUG
 
   if impl(ghc > 6.11)
@@ -152,7 +154,7 @@ executable scion-server
   extensions:      CPP, PatternGuards, DeriveDataTypeable, OverlappingInstances, IncoherentInstances, FlexibleInstances, UndecidableInstances, TypeSynonymInstances
 
   if flag(testing)
-    build-depends: QuickCheck == 2.*
+    build-depends: QuickCheck >= 2
     cpp-options:   -DSCION_DEBUG
 
   if impl(ghc > 6.11)
@@ -192,7 +194,7 @@ executable scion-test
     array        >= 0.2 && < 0.4,
     old-time     == 1.0.*,
     derive,
-    QuickCheck == 2.*,
+    QuickCheck   >= 2,
     HUnit
 
   if flag(cabal_1_8)

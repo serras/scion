@@ -41,7 +41,6 @@ import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
-
 import Data.Data
 import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
@@ -460,7 +459,9 @@ tokenType  ITthreadsafe= "EK"
 tokenType  ITunsafe= "EK"
 tokenType  ITstdcallconv= "EK"
 tokenType  ITccallconv= "EK"
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  ITprimcallconv= "EK"
+#endif
 tokenType  ITmdo= "EK"
 tokenType  ITfamily= "EK"
 tokenType  ITgroup= "EK"
@@ -469,7 +470,9 @@ tokenType  ITusing= "EK"
 
         -- Pragmas
 tokenType  (ITinline_prag {})="P"          -- True <=> INLINE, False <=> NOINLINE
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  (ITinline_conlike_prag {})="P"  -- same
+#endif
 tokenType  ITspec_prag="P"                 -- SPECIALISE   
 tokenType  (ITspec_inline_prag {})="P"     -- SPECIALISE INLINE (or NOINLINE)
 tokenType  ITsource_prag="P"
@@ -481,7 +484,9 @@ tokenType  ITscc_prag="P"
 tokenType  ITgenerated_prag="P"
 tokenType  ITcore_prag="P"                 -- hdaume: core annotations
 tokenType  ITunpack_prag="P"
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  ITann_prag="P"
+#endif
 tokenType  ITclose_prag="P"
 tokenType  (IToptions_prag {})="P"
 tokenType  (ITinclude_prag {})="P"

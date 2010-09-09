@@ -1,0 +1,2 @@
+#!/bin/sh
+zip -r scion-0.1.0.4.zip docs emacs lib README.markdown scion.cabal server Setup.hs vim_runtime_path
