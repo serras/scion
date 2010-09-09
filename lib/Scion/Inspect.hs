@@ -51,7 +51,7 @@ import Data.Maybe
 import GHC.SYB.Utils
 import Data.List ( foldl' )
 
-#if __GLASGOS_HASKELL__ < 612
+#if __GLASGOW_HASKELL__ >= 612
 import StringBuffer
 #endif
 
@@ -160,10 +160,10 @@ mkOutlineDef base_dir (L sp t) =
   let
     tN = foldl' (\tn (f, result) -> 
                      if null tn 
-		     then if (f t) 
-			  then result
-			  else tn
-		     else tn)
+                     then if (f t) 
+                          then result
+                          else tn
+                     else tn)
                 "" typeToName
   in
     [OutlineDef (Left n) tN
@@ -253,26 +253,27 @@ ghctokensArbitrary base_dir contents = do
                 PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
 
 lexerFlags :: [DynFlag]
-lexerFlags=[Opt_ForeignFunctionInterface ,
-        Opt_PArr,
-        Opt_Arrows,
-        Opt_TemplateHaskell,
-        Opt_QuasiQuotes,
-        Opt_ImplicitParams,
-        Opt_BangPatterns, 
-        Opt_TypeFamilies,
-        Opt_Haddock,
-        Opt_MagicHash,
-        Opt_KindSignatures,
-        Opt_RecursiveDo,
-        Opt_UnicodeSyntax,
-        Opt_UnboxedTuples,
-        Opt_StandaloneDeriving,
-        Opt_TransformListComp,
-        Opt_NewQualifiedOperators
+lexerFlags =
+        [ Opt_ForeignFunctionInterface
+        , Opt_PArr,
+        , Opt_Arrows,
+        , Opt_TemplateHaskell,
+        , Opt_QuasiQuotes,
+        , Opt_ImplicitParams,
+        , Opt_BangPatterns, 
+        , Opt_TypeFamilies,
+        , Opt_Haddock,
+        , Opt_MagicHash,
+        , Opt_KindSignatures,
+        , Opt_RecursiveDo,
+        , Opt_UnicodeSyntax,
+        , Opt_UnboxedTuples,
+        , Opt_StandaloneDeriving,
+        , Opt_TransformListComp,
+        , Opt_NewQualifiedOperators
 #if GHC_VERSION > 611       
-        ,Opt_ExplicitForAll -- 6.12
-        ,Opt_DoRec -- 6.12
+        , Opt_ExplicitForAll -- 6.12
+        , Opt_DoRec -- 6.12
 #endif
         ]                
                 
