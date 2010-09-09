@@ -24,8 +24,9 @@ import GHC hiding ( load, TyCon )
 import GHC.Paths  ( ghc, ghc_pkg )
 import Data.Typeable ()
 
-import Text.JSON
-import Text.JSON.Generic
+import Text.JSON.AttoJSON
+import qualified Data.ByteString.Char8 as S
+import qualified Scion.Types.JSONDictionary as Dic
 
 import Control.Monad
 import Data.Data
@@ -164,7 +165,7 @@ cabalTargets (Executable f name) = do
   pd <- cabal_package f
   let ex0 = filter ((name==) . PD.exeName) (PD.executables pd)
   case ex0 of
-    [] -> error "no exe" --noExeError n
+    [] -> error "cabalTargets no exe" --noExeError n
     (_:_:_) -> error $ "Multiple executables with name: " ++ name
     [exe] -> do
       let proj_root = dropFileName f
@@ -218,7 +219,7 @@ cabalDynFlags component = do
    component_build_info (Executable _ n) pd =
      case [ exe | exe <- PD.executables pd, PD.exeName exe == n ] of
        [ exe ] -> return (PD.buildInfo exe)
-       [] -> error "no exe" --noExeError n
+       [] -> error "cabalDynFlags no exe" --noExeError n
        _ -> error $ "Multiple executables, named \"" ++ n ++ 
                     "\" found.  This is weird..."
 
@@ -449,35 +450,35 @@ configureCabalProject root_dir dist_dir _extra_args = do
                CannotOpenCabalProject "Too many .cabal files"
 
 instance JSON CabalComponent where
-  readJSON (JSObject obj)
-    | Ok JSNull <- lookupKey obj "library",
-      Ok f <- lookupKey obj "cabal-file" =
-        return $ Library (fromJSString f)
-    | Ok s <- lookupKey obj "executable",
-      Ok f <- lookupKey obj "cabal-file" =
-        return $ Executable (fromJSString f) (fromJSString s)
-  readJSON _ = fail "component"
+  fromJSON obj@(JSObject _)
+    | Just JSNull <- Dic.lookupKey obj (Dic.library),
+      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile =
+        return $ Library (S.unpack f)
+    | Just (JSString s) <- Dic.lookupKey obj (Dic.executable),
+      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile =
+        return $ Executable (S.unpack f) (S.unpack s)
+  fromJSON _ = fail "component"
 
-  showJSON (Library f) =
-    makeObject [("library", JSNull),
-                ("cabal-file", JSString (toJSString f))]
-  showJSON (Executable f n) =
-      makeObject [("executable", JSString (toJSString n)),
-                  ("cabal-file", JSString (toJSString f))]
+  toJSON (Library f) =
+    Dic.makeObject [(Dic.library, JSNull),
+                (Dic.cabalfile, JSString (S.pack f))]
+  toJSON (Executable f n) =
+      Dic.makeObject [(Dic.executable, JSString (S.pack n)),
+                  (Dic.cabalfile, JSString (S.pack f))]
 
 instance JSON CabalPackage where
-        readJSON (JSObject obj) | 
-                Ok n <- lookupKey obj "name",
-                Ok v <- lookupKey obj "version"=do
-                        JSBool e <- lookupKey obj "exposed"
-                        ds <- readJSON =<< lookupKey obj "dependent"
-                        return $ CabalPackage (fromJSString n) (fromJSString v) e ds
-        readJSON _ = fail "CabalPackage"
-        showJSON (CabalPackage n v e ds)=makeObject [("name",JSString (toJSString n)),("version",JSString (toJSString v)),("exposed",JSBool e),("dependent",showJSON ds)]
+        fromJSON obj@(JSObject _) | 
+                Just (JSString n) <- Dic.lookupKey obj Dic.name,
+                Just (JSString v) <- Dic.lookupKey obj Dic.version=do
+                        JSBool e <- Dic.lookupKey obj Dic.exposed
+                        ds <- fromJSON =<< Dic.lookupKey obj Dic.dependent
+                        return $ CabalPackage (S.unpack n) (S.unpack v) e ds
+        fromJSON _ = fail "CabalPackage"
+        toJSON (CabalPackage n v e ds)=Dic.makeObject [(Dic.name,JSString (S.pack n)),(Dic.version,JSString (S.pack v)),(Dic.exposed,JSBool e),(Dic.dependent,toJSON ds)]
 
 instance (Data a) => JSON (PD.ParseResult a) where
-        readJSON _= undefined
-        showJSON (PD.ParseFailed pf)=makeObject [("error",JSString (toJSString $ show pf))]
-        showJSON (PD.ParseOk wrns a)=makeObject [("warnings",JSArray (map (JSString . toJSString . show) wrns)),
-                ("result",toJSON a)]
-
+        fromJSON _= undefined
+        toJSON (PD.ParseFailed pf)=Dic.makeObject [(Dic.error,JSString (S.pack $ show pf))]
+        toJSON (PD.ParseOk wrns a)=Dic.makeObject [(Dic.warnings,JSArray (map (JSString . S.pack . show) wrns)),
+                (Dic.result,JSObject DM.empty)] --toJSON a
+ 

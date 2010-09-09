@@ -16,9 +16,10 @@
 module Scion.Inspect 
   ( typeOfResult, prettyResult
   , typeDecls, classDecls, familyDecls
-  , toplevelNames, outline, tokensArbitrary
+  , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
+  , preprocessSource
   ) where
 
 import Scion.Ghc
@@ -28,14 +29,15 @@ import Scion.Inspect.TypeOf
 import Scion.Types.Notes
 import Scion.Types.Outline
 import Scion.Types
+import Scion.Session
 
+import DynFlags
 import ErrUtils
 import FastString
 import Lexer
 import Bag
 import Var ( varType )
 import DataCon ( dataConUserType )
-import SrcLoc
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 
@@ -43,6 +45,8 @@ import VarEnv ( emptyTidyEnv )
 import Data.Data
 import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
+import Data.List (sortBy)
+import Data.Ord (comparing)
 import Data.Maybe
 import GHC.SYB.Utils
 import Data.List ( foldl' )
@@ -55,6 +59,8 @@ import StringBuffer
 --import FastString
 import Test.QuickCheck()
 import Test.GHC.Gen()
+
+
 --import Debug.Trace
 --import StaticFlags ( initStaticOpts )
 #endif
@@ -225,17 +231,50 @@ tokens base_dir m = do
         ts<-getTokenStream m
         return $ catMaybes $ map (mkTokenDef base_dir) ts
 
-tokensArbitrary :: FilePath -> String -> ScionM (Either Note [TokenDef])
+tokensArbitrary :: FilePath  -> String -> ScionM (Either Note [TokenDef])
 tokensArbitrary base_dir contents = do
-        sb <- liftIO $ stringToStringBuffer contents
-        dflags0 <- getSessionDynFlags
-        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString contents) 0 0) dflags0
-        case prTS of
-                POk _ ts        -> return $ Right $ catMaybes $ map (mkTokenDef base_dir) (filter ofInterest ts)
-                PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
-                
-                --(Note ErrorNote (ghcSpanToLocation base_dir loc) (showSDocForUser (errMsgContext msg) msg))
+        r<-ghctokensArbitrary base_dir contents
+        case r of 
+                Right ts->return $ Right $ catMaybes $ map (mkTokenDef base_dir) ts
+                Left n->return $ Left n
 
+ghctokensArbitrary :: FilePath -> String -> ScionM (Either Note [Located Token])
+ghctokensArbitrary base_dir contents = do
+        sb <- liftIO $ stringToStringBuffer contents
+        --setActiveComponent comp
+        --setComponentDynFlags comp
+        dflags0 <- getSessionDynFlags
+        let dflags1 = foldl' dopt_set dflags0 lexerFlags
+        --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
+        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
+        --setSessionDynFlags dflags0
+        case prTS of
+                POk _ ts        -> return $ Right $ (filter ofInterest ts)
+                PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
+
+lexerFlags :: [DynFlag]
+lexerFlags=[Opt_ForeignFunctionInterface ,
+        Opt_PArr,
+        Opt_Arrows,
+        Opt_TemplateHaskell,
+        Opt_QuasiQuotes,
+        Opt_ImplicitParams,
+        Opt_ExplicitForAll,
+        Opt_BangPatterns,
+        Opt_TypeFamilies,
+        Opt_Haddock,
+        Opt_MagicHash,
+        Opt_KindSignatures,
+        Opt_RecursiveDo,
+        Opt_DoRec,
+        Opt_Arrows,
+        Opt_UnicodeSyntax,
+        Opt_UnboxedTuples,
+        Opt_StandaloneDeriving,
+        Opt_TransformListComp,
+        Opt_NewQualifiedOperators]                
+                
+                
 ofInterest :: Located Token -> Bool
 ofInterest (L sp _) | 
                 sl <-(srcSpanStartLine sp),
@@ -243,12 +282,47 @@ ofInterest (L sp _) |
                 el <- (srcSpanEndLine sp),
                 ec <- (srcSpanEndCol sp)   = (sl < el) || (sc < ec)
 
+tokenTypesArbitrary :: FilePath -> String -> Bool -> ScionM (Either Note [TokenDef])
+tokenTypesArbitrary base_dir contents literate= do
+        let (ppTs,ppC)=preprocessSource contents literate
+        r<-ghctokensArbitrary base_dir ppC
+        case r of 
+                Right ts->do
+                        return $ Right $ sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
+                Left n->return $ Left n
+                 
+tokenToType :: FilePath -> Located Token -> TokenDef
+tokenToType base_dir (L sp t) =TokenDef (tokenType t) (ghcSpanToLocation base_dir sp)
+
 mkTokenDef :: FilePath -> Located Token -> Maybe TokenDef
 mkTokenDef base_dir (L sp t) | Just s<-mkTokenName t=Just $ TokenDef s (ghcSpanToLocation base_dir sp)
 mkTokenDef _ _=Nothing
 
 mkTokenName :: Token -> Maybe String
 mkTokenName t= Just $ showConstr $ toConstr t
+
+preprocessSource ::  String -> Bool -> ([TokenDef],String)
+preprocessSource contents literate=
+        let 
+                (ts1,s2)=if literate then ppSF contents ppSLit else ([],contents) 
+                (ts2,s3)=ppSF s2 ppSCpp
+        in (ts1++ts2,s3)
+        where 
+                ppSF contents2 p= let
+                        linesWithCount=zip (lines contents2) [1..]
+                        (ts,nc,_)=foldl' p ([],[],False) linesWithCount
+                        in (reverse ts,unlines $ reverse nc)
+                ppSCpp :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
+                ppSCpp (ts2,l2,f) (l,c) 
+                        | f = addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l))
+                        | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l)) 
+                        | otherwise =(ts2,l:l2,False)
+                ppSLit :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
+                ppSLit (ts2,l2,f) (l,c) 
+                        | ('>':lCode)<-l, True<-literate=(ts2,(' ':lCode):l2,f)
+                        | otherwise =addPPToken "DL" (l,c) (ts2,l2,f)  
+                addPPToken :: String -> (String,Int) -> ([TokenDef],[String],Bool) -> ([TokenDef],[String],Bool)
+                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 0 c (length l))):ts2,"":l2,f)
 
 deriving instance Typeable Token
 deriving instance Data Token
@@ -345,3 +419,164 @@ instance Biplate [(Located a)] a where
 instance Biplate a b => Biplate (Bag a) b where
   biplate b = (foldBag 
 -}
+
+tokenType :: Token -> String
+tokenType  ITas = "K"                         -- Haskell keywords
+tokenType  ITcase = "K"
+tokenType  ITclass = "K"
+tokenType  ITdata = "K"
+tokenType  ITdefault = "K"
+tokenType  ITderiving = "K"
+tokenType  ITdo = "K"
+tokenType  ITelse = "K"
+tokenType  IThiding = "K"
+tokenType  ITif = "K"
+tokenType  ITimport = "K"
+tokenType  ITin = "K"
+tokenType  ITinfix = "K"
+tokenType  ITinfixl = "K"
+tokenType  ITinfixr = "K"
+tokenType  ITinstance = "K"
+tokenType  ITlet = "K"
+tokenType  ITmodule = "K"
+tokenType  ITnewtype = "K"
+tokenType  ITof = "K"
+tokenType  ITqualified = "K"
+tokenType  ITthen = "K"
+tokenType  ITtype = "K"
+tokenType  ITwhere = "K"
+tokenType  ITscc = "K"                       -- ToDo: remove (we use {-# SCC "..." #-} now)
+
+tokenType  ITforall = "EK"                    -- GHC extension keywords
+tokenType  ITforeign = "EK"
+tokenType  ITexport= "EK"
+tokenType  ITlabel= "EK"
+tokenType  ITdynamic= "EK"
+tokenType  ITsafe= "EK"
+tokenType  ITthreadsafe= "EK"
+tokenType  ITunsafe= "EK"
+tokenType  ITstdcallconv= "EK"
+tokenType  ITccallconv= "EK"
+tokenType  ITprimcallconv= "EK"
+tokenType  ITmdo= "EK"
+tokenType  ITfamily= "EK"
+tokenType  ITgroup= "EK"
+tokenType  ITby= "EK"
+tokenType  ITusing= "EK"
+
+        -- Pragmas
+tokenType  (ITinline_prag {})="P"          -- True <=> INLINE, False <=> NOINLINE
+tokenType  (ITinline_conlike_prag {})="P"  -- same
+tokenType  ITspec_prag="P"                 -- SPECIALISE   
+tokenType  (ITspec_inline_prag {})="P"     -- SPECIALISE INLINE (or NOINLINE)
+tokenType  ITsource_prag="P"
+tokenType  ITrules_prag="P"
+tokenType  ITwarning_prag="P"
+tokenType  ITdeprecated_prag="P"
+tokenType  ITline_prag="P"
+tokenType  ITscc_prag="P"
+tokenType  ITgenerated_prag="P"
+tokenType  ITcore_prag="P"                 -- hdaume: core annotations
+tokenType  ITunpack_prag="P"
+tokenType  ITann_prag="P"
+tokenType  ITclose_prag="P"
+tokenType  (IToptions_prag {})="P"
+tokenType  (ITinclude_prag {})="P"
+tokenType  ITlanguage_prag="P"
+
+tokenType  ITdotdot="S"                    -- reserved symbols
+tokenType  ITcolon="S"
+tokenType  ITdcolon="S"
+tokenType  ITequal="S"
+tokenType  ITlam="S"
+tokenType  ITvbar="S"
+tokenType  ITlarrow="S"
+tokenType  ITrarrow="S"
+tokenType  ITat="S"
+tokenType  ITtilde="S"
+tokenType  ITdarrow="S"
+tokenType  ITminus="S"
+tokenType  ITbang="S"
+tokenType  ITstar="S"
+tokenType  ITdot="S"
+
+tokenType  ITbiglam="ES"                    -- GHC-extension symbols
+
+tokenType  ITocurly="SS"                    -- special symbols
+tokenType  ITccurly="SS" 
+tokenType  ITocurlybar="SS"                  -- {|, for type applications
+tokenType  ITccurlybar="SS"                  -- |}, for type applications
+tokenType  ITvocurly="SS" 
+tokenType  ITvccurly="SS" 
+tokenType  ITobrack="SS" 
+tokenType  ITopabrack="SS"                   -- [:, for parallel arrays with -XParr
+tokenType  ITcpabrack="SS"                   -- :], for parallel arrays with -XParr
+tokenType  ITcbrack="SS" 
+tokenType  IToparen="SS" 
+tokenType  ITcparen="SS" 
+tokenType  IToubxparen="SS" 
+tokenType  ITcubxparen="SS" 
+tokenType  ITsemi="SS" 
+tokenType  ITcomma="SS" 
+tokenType  ITunderscore="SS" 
+tokenType  ITbackquote="SS" 
+
+tokenType  (ITvarid {})="IV"        -- identifiers
+tokenType  (ITconid {})="IC"
+tokenType  (ITvarsym {})="IV"
+tokenType  (ITconsym {})="IC"
+tokenType  (ITqvarid {})="IV"
+tokenType  (ITqconid {})="IC"
+tokenType  (ITqvarsym {})="IV"
+tokenType  (ITqconsym {})="IC"
+tokenType  (ITprefixqvarsym {})="IV"
+tokenType  (ITprefixqconsym {})="IC"
+
+tokenType  (ITdupipvarid {})="EI"   -- GHC extension: implicit param: ?x
+
+tokenType  (ITchar {})="LC"
+tokenType  (ITstring {})="LS"
+tokenType  (ITinteger {})="LI"
+tokenType  (ITrational {})="LR"
+
+tokenType  (ITprimchar {})="LC"
+tokenType  (ITprimstring {})="LS"
+tokenType  (ITprimint {})="LI"
+tokenType  (ITprimword {})="LW"
+tokenType  (ITprimfloat {})="LF"
+tokenType  (ITprimdouble {})="LD"
+
+  -- Template Haskell extension tokens
+tokenType  ITopenExpQuote="TH"              --  [| or [e|
+tokenType  ITopenPatQuote="TH"              --  [p|
+tokenType  ITopenDecQuote="TH"              --  [d|
+tokenType  ITopenTypQuote="TH"              --  [t|         
+tokenType  ITcloseQuote="TH"                --tokenType ]
+tokenType  (ITidEscape {})="TH"    --  $x
+tokenType  ITparenEscape="TH"               --  $( 
+tokenType  ITvarQuote="TH"                  --  '
+tokenType  ITtyQuote="TH"                   --  ''
+tokenType  (ITquasiQuote {})="TH" --  [:...|...|]
+
+  -- Arrow notation extension
+tokenType  ITproc="A"
+tokenType  ITrec="A"
+tokenType  IToparenbar="A"                 --  (|
+tokenType  ITcparenbar="A"                 --tokenType )
+tokenType  ITlarrowtail="A"                --  -<
+tokenType  ITrarrowtail="A"                --  >-
+tokenType  ITLarrowtail="A"                --  -<<
+tokenType  ITRarrowtail="A"                --  >>-
+
+tokenType  (ITunknown {})=""           -- Used when the lexer can't make sense of it
+tokenType  ITeof=""                       -- end of file token
+
+  -- Documentation annotations
+tokenType  (ITdocCommentNext {})="D"     -- something beginning '-- |'
+tokenType  (ITdocCommentPrev {})="D"    -- something beginning '-- ^'
+tokenType  (ITdocCommentNamed {})="D"     -- something beginning '-- $'
+tokenType  (ITdocSection {})="D" -- a section heading
+tokenType  (ITdocOptions {})="D"    -- doc options (prune, ignore-exports, etc)
+tokenType  (ITdocOptionsOld {})="D"     -- doc options declared "-- # ..."-style
+tokenType  (ITlineComment {})="D"     -- comment starting by "--"
+tokenType  (ITblockComment {})="D"     -- comment in {- -}

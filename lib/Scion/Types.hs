@@ -18,14 +18,16 @@ module Scion.Types
 
 import Scion.Types.Notes
 import Scion.Types.ExtraInstances()
+import qualified Scion.Types.JSONDictionary as Dic
 
 import GHC
 import HscTypes
 import MonadUtils ( liftIO, MonadIO )
 import Exception
 
-import Text.JSON
+import Text.JSON.AttoJSON
 
+import qualified Data.ByteString.Char8 as S
 import qualified Data.Map as M
 import qualified Data.MultiSet as MS
 import Distribution.Simple.LocalBuildInfo
@@ -384,18 +386,35 @@ instance IsComponent FileComp where
     -- return $ fromMaybe [] $ 
     --   lookup (takeFileName f) [] --(fileComponentExtraFlags config)
 
-lookupKey :: JSON a => JSObject JSValue -> String -> Result a
-lookupKey = flip valFromObj
 
-makeObject :: [(String, JSValue)] -> JSValue
-makeObject = makeObj
+
+
 
 instance JSON FileComp where
-  readJSON (JSObject obj)
-    | Ok s <- lookupKey obj "file" =
-        return $ FileComp (fromJSString s)
+  fromJSON obj@(JSObject _)
+    | Just (JSString s) <- Dic.lookupKey obj Dic.file =
+        return $ FileComp (S.unpack s)
     | otherwise = fail "file slot missing"
-  readJSON j = fail $ "filecomp not an object" ++ show j
-  showJSON (FileComp n) =
-      makeObject [("file", JSString (toJSString n))]
+  fromJSON j = fail $ "filecomp not an object" ++ show j
+  toJSON (FileComp n) =
+      Dic.makeObject [(Dic.file, JSString (S.pack n))]
 
+defaultLoadOptions :: LoadOptions
+defaultLoadOptions=LoadOptions False False
+
+data LoadOptions=LoadOptions {
+        lo_output::Bool,
+        lo_forcerecomp::Bool
+        }
+        deriving (Show,Read)
+        
+instance JSON LoadOptions where
+   fromJSON obj@(JSObject _)
+     | Just (JSBool ob)  <- Dic.lookupKey obj Dic.output,
+       Just (JSBool rb)  <- Dic.lookupKey obj Dic.forcerecomp
+         = return $ LoadOptions ob rb
+   fromJSON j = fail $ "LoadOptions not an object" ++ show j    
+   toJSON (LoadOptions ob rb) =
+      Dic.makeObject [(Dic.output, JSBool ob),(Dic.forcerecomp, JSBool rb)]    
+        
+        
