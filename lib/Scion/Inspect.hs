@@ -50,7 +50,7 @@ import Data.Maybe
 import GHC.SYB.Utils
 import Data.List ( foldl' )
 
-#if __GLASGOW_HASKELL__ >= 612
+#if __GLASGOW_HASKELL__ >= 610
 import StringBuffer
 #endif
 
