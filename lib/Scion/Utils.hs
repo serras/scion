@@ -25,10 +25,10 @@ import Data.Maybe ( fromMaybe )
 
 import Data.Char (isLower, isUpper)
 
-import Text.JSON.AttoJSON
-import qualified Data.ByteString.Char8 as S
-
-import Data.Foldable (foldlM)
+import Text.JSON.AttoJSON()
+-- GHC warns that these imports are unused
+-- import qualified Data.ByteString.Char8() as S
+-- import Data.Foldable (foldlM)
 
 import System.FilePath
 
