@@ -45,7 +45,7 @@ import VarEnv ( emptyTidyEnv )
 import Data.Data
 import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
-import Data.List (sortBy)
+import Data.List (sortBy,isPrefixOf)
 import Data.Ord (comparing)
 import Data.Maybe
 import GHC.SYB.Utils
@@ -275,7 +275,7 @@ lexerFlags=[Opt_ForeignFunctionInterface ,
         ,Opt_DoRec -- 6.12
 #endif
         ]                
-                
+               
                 
 ofInterest :: Located Token -> Bool
 ofInterest (L sp _) | 
@@ -284,17 +284,22 @@ ofInterest (L sp _) |
                 el <- (srcSpanEndLine sp),
                 ec <- (srcSpanEndCol sp)   = (sl < el) || (sc < ec)
 
+toInteractive ::  Location -> Location
+toInteractive l | (_, sl1, sc1, el1, ec1) <- viewLoc l=mkLocation interactive sl1 sc1 el1 ec1
+
 tokenTypesArbitrary :: FilePath -> String -> Bool -> ScionM (Either Note [TokenDef])
 tokenTypesArbitrary base_dir contents literate= do
         let (ppTs,ppC)=preprocessSource contents literate
         r<-ghctokensArbitrary base_dir ppC
         case r of 
                 Right ts->do
-                        return $ Right $ sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
+                        let toks=sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
+                        --liftIO $ putStrLn $ show toks
+                        return $ Right $ toks
                 Left n->return $ Left n
                  
 tokenToType :: FilePath -> Located Token -> TokenDef
-tokenToType base_dir (L sp t) =TokenDef (tokenType t) (ghcSpanToLocation base_dir sp)
+tokenToType base_dir (L sp t) =TokenDef (tokenType t) (toInteractive $ ghcSpanToLocation base_dir sp)
 
 mkTokenDef :: FilePath -> Located Token -> Maybe TokenDef
 mkTokenDef base_dir (L sp t) | Just s<-mkTokenName t=Just $ TokenDef s (ghcSpanToLocation base_dir sp)
@@ -302,6 +307,9 @@ mkTokenDef _ _=Nothing
 
 mkTokenName :: Token -> Maybe String
 mkTokenName t= Just $ showConstr $ toConstr t
+
+interactive :: LocSource
+interactive = OtherSrc "<interactive>"
 
 preprocessSource ::  String -> Bool -> ([TokenDef],String)
 preprocessSource contents literate=
@@ -318,13 +326,14 @@ preprocessSource contents literate=
                 ppSCpp (ts2,l2,f) (l,c) 
                         | f = addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l))
                         | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l)) 
+                        | ("{-# LINE" `isPrefixOf` l)=addPPToken "D" (l,c) (ts2,l2,False) 
                         | otherwise =(ts2,l:l2,False)
                 ppSLit :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
                 ppSLit (ts2,l2,f) (l,c) 
                         | ('>':lCode)<-l, True<-literate=(ts2,(' ':lCode):l2,f)
                         | otherwise =addPPToken "DL" (l,c) (ts2,l2,f)  
                 addPPToken :: String -> (String,Int) -> ([TokenDef],[String],Bool) -> ([TokenDef],[String],Bool)
-                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation (OtherSrc "<interactive>") c 0 c (length l))):ts2,"":l2,f)
+                addPPToken name (l,c) (ts2,l2,f) =((TokenDef name (mkLocation interactive c 0 c (length l))):ts2,"":l2,f)
 
 deriving instance Typeable Token
 deriving instance Data Token
