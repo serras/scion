@@ -16,6 +16,7 @@ module Scion.Types
   , liftIO, MonadIO
   ) where
 
+import Prelude hiding ( log )
 import Scion.Types.Notes
 import Scion.Types.ExtraInstances()
 import qualified Scion.Types.JSONDictionary as Dic
@@ -33,6 +34,7 @@ import qualified Data.MultiSet as MS
 import Distribution.Simple.LocalBuildInfo
 import System.Directory ( setCurrentDirectory, getCurrentDirectory )
 import System.FilePath ( normalise, (</>), dropFileName )
+import qualified System.Log.Logger as HL
 import Control.Monad ( when )
 import Data.IORef
 import Data.Monoid
@@ -120,8 +122,10 @@ instance GhcMonad ScionM where
   getSession = liftScionM getSession
   setSession = liftScionM . setSession
 
+{- Currently unused, sole use is commented out in 'componentOptions (FileComp _f)'
+   above.
 io :: MonadIO m => IO a -> m a
-io = liftIO
+io = liftIO -}
 
 modifySessionState :: (SessionState -> SessionState) -> ScionM ()
 modifySessionState f =
@@ -176,7 +180,14 @@ setVerbosity v = modifySessionState $ \s -> s { scionVerbosity = v }
 message :: Verbosity -> String -> ScionM ()
 message v s = do
   v0 <- getVerbosity
-  when (v0 >= v) $ liftIO $ putStrLn s
+  when (v0 >= v) $ liftIO $ logInfo s
+
+log :: HL.Priority -> String -> IO()
+log = HL.logM __FILE__
+
+logInfo, logDebug :: String -> IO()
+logInfo = log HL.INFO
+logDebug = log HL.DEBUG
 
 ------------------------------------------------------------------------
 -- * Reflection into IO

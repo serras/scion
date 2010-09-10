@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE ForeignFunctionInterface, CPP #-}
 -- |
 -- Module      : Scion.Packages
 -- Author      : Thiago Arrais
@@ -11,133 +11,204 @@
 -- Portability : portable
 -- 
 -- Cabal-related functionality.
-module Scion.Packages where
+module Scion.Packages ( getPkgInfos) where
 
 import qualified Config
 import qualified System.Info
 import Data.List
+import Data.Maybe
+import Control.Monad
 import Distribution.InstalledPackageInfo
+import Distribution.Text
+import qualified Control.Exception as Exception
 import GHC.Paths
 import System.Directory
-import System.Environment
+import System.Environment (getEnv)
 import System.FilePath
 import System.IO
 import System.IO.Error
 
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ < 612 || defined(mingw32_HOST_OS)
+-- mingw32 needs these for getExecDir, GHC <6.12 needs them for openNewFile
+import Foreign
+import Foreign.C
+#endif
+
+-- This was borrowed from the ghc-pkg source:
+type InstalledPackageInfoString = InstalledPackageInfo_ String
+
+-- | Fetch the installed package info from the global and user package.conf
+-- databases, mimicking the functionality of ghc-pkg.
+
 getPkgInfos :: IO [(FilePath,[InstalledPackageInfo])]
-getPkgInfos = do
-    global_conf <-
-        catch (getEnv "GHC_PKGCONF")
-              (\err ->  if isDoesNotExistError err
-                            then do let dir = takeDirectory $ takeDirectory ghc_pkg
-                                        path1 = libdir </> "package.conf"
-                                        path2 = libdir </> ".." </> ".." </> ".."
-                                                       </> "inplace-datadir"
-                                                       </> "package.conf"
-                                        path3 = dir </> "package.conf"
-                                        path4 = dir </> ".." </> ".." </> ".."
-                                                    </> "inplace-datadir"
-                                                    </> "package.conf"
-                                        searched = [ path1, path2, path3, path4 ]
-                                    exists1 <- doesFileExist path1
-                                    exists2 <- doesFileExist path2
-                                    exists3 <- doesFileExist path3
-                                    exists4 <- doesFileExist path4
-                                    if exists1 then return path1
-                                       else if exists2 then return path2
-                                       else if exists3 then return path3
-                                       else if exists4 then return path4
-                                       else ioError $ userError ("Can't find package.conf, searched " ++ (foldl1 (++) searched))
-                            else ioError err)
+getPkgInfos = 
+  let
+    -- | Test for package database's presence in a given directory
+    lookForPackageDBIn :: FilePath -> IO (Maybe FilePath)
+    lookForPackageDBIn dir =
+      let
+        path_dir = dir </> "package.conf.d"
+        path_file = dir </> "package.conf"
+      in do
+        exists_dir <- doesDirectoryExist path_dir
+        if exists_dir
+          then return (Just path_dir)
+          else do
+            exists_file <- doesFileExist path_file
+            if exists_file
+              then return (Just path_file)
+              else return Nothing
 
-    let global_conf_dir = global_conf ++ ".d"
-    global_conf_dir_exists <- doesDirectoryExist global_conf_dir
-    global_confs <-
-        if global_conf_dir_exists
-            then do files <- getDirectoryContents global_conf_dir
-                    return  [ global_conf_dir ++ '/' : file
-                            | file <- files
-                            , isSuffixOf ".conf" file]
-            else return []
+  in do
+    let err_msg = "Unable to determine the location of global package.conf\n"
 
-    user_conf <-
-        try (getAppUserDataDirectory "ghc") >>= either
-            (\_ -> return [])
-            (\appdir -> do
-                let subdir = currentArch ++ '-':currentOS ++ '-':ghcVersion
-                    user_conf = appdir </> subdir </> "package.conf"
-                user_exists <- doesFileExist user_conf
-                return (if user_exists then [user_conf] else []))
+    -- Get the global package configuration database:
+    global_conf <- do
+      proposed <- getLibDir
+      case proposed of
+        Nothing  -> ioError $ userError err_msg
+        Just dir -> do
+          r <- lookForPackageDBIn dir
+          case r of
+            Nothing -> ioError $ userError ("Can't find package database in " ++ dir)
+            Just _  -> return dir
 
-    let pkg_dbs = user_conf ++ global_confs ++ [global_conf]
-    return =<< mapM (\a->do
-        c<-readFile a
-        return (a,read c)) pkg_dbs
-        
-#else
-getPkgInfos :: IO [(FilePath,[InstalledPackageInfo])]
-getPkgInfos = do
-        global_conf <- do 
-             let dir =(takeDirectory $ takeDirectory ghc_pkg) </> "lib"
+    global_confs <- readContents global_conf
+
+    -- Get the user package configuration database
+    e_appdir <- try $ getAppUserDataDirectory "ghc"
+    user_conf <- do
+         case e_appdir of
+           Left _       -> return []
+           Right appdir -> do
+             let subdir = currentArch ++ '-':currentOS ++ '-':ghcVersion
+                 dir = appdir </> subdir
              r <- lookForPackageDBIn dir
              case r of
-               Nothing -> ioError $ userError ("Can't find package database in " ++ dir)
-               Just path -> return path
-        global_confs<-readContents global_conf
-        e_appdir <- try $ getAppUserDataDirectory "ghc"
-        user_conf <- do
-             case e_appdir of
-               Left _    -> return []
-               Right appdir -> do
-                 let subdir = currentArch ++ '-':currentOS ++ '-':ghcVersion
-                     dir = appdir </> subdir
-                 r <- lookForPackageDBIn dir
-                 case r of
-                   Nothing -> return []
-                   Just f  -> readContents f
-        return (user_conf ++ global_confs)
+               Nothing -> return []
+               Just _  -> readContents dir
 
-listConf :: FilePath -> IO [[Char]]
-listConf fp=do
-        global_conf_dir_exists <- doesDirectoryExist fp
-        if global_conf_dir_exists
-            then do files <- getDirectoryContents fp
-                    return  [ fp ++ '/' : file
-                            | file <- files
-                            , isSuffixOf ".conf" file]
-            else return []
+    -- Process GHC_PACKAGE_PATH, if present:
+    e_pkg_path <- try (getEnv "GHC_PACKAGE_PATH")
+    env_stack <- do 
+      case e_pkg_path of
+        Left _     -> return []
+        Right path -> do
+          pkgs <- mapM readContents (parseSearchPath path)
+          return $ concat pkgs
 
-readContents :: FilePath -> IO [(FilePath, [InstalledPackageInfo])]
-readContents fp = do
-        confs<-listConf fp
-        --pis<-mapM ((>>= return.read).readFile) confs
-        pis<-mapM (\f->do
-                c<-readUTF8File f
-                let ParseOk _ i=(parseInstalledPackageInfo c)
-                return i) confs
-        return [(fp,pis)]
+    -- Send back the combined installed packages list:
+    return (env_stack ++ user_conf ++ global_confs)
 
-readUTF8File :: FilePath -> IO String
-readUTF8File file = do
-  h <- openFile file ReadMode
+parseSearchPath :: String -> [FilePath]
+parseSearchPath path = split path
+  where
+    split :: String -> [String]
+    split s =
+      case rest' of
+        []     -> [chunk]
+        _:rest -> chunk : split rest
+      where
+        chunk =
+          case chunk' of
+#ifdef mingw32_HOST_OS
+            ('\"':xs@(_:_)) | last xs == '\"' -> init xs
+#endif
+            _                                 -> chunk'
+
+        (chunk', rest') = break isSearchPathSeparator s
+
+-- | Read the contents of the given directory, searching for ".conf" files, and parse the
+-- package contents. Returns a singleton list (directory, [installed packages])
+readContents :: FilePath                                        -- ^ The directory to examine
+                -> IO [(FilePath, [InstalledPackageInfo])]      -- ^ Installed packages
+readContents fp =
+  let
+    -- List package configuration files that might live in the given directory
+    listConf :: FilePath -> IO [[Char]]
+    listConf fp' = do
+            global_conf_dir_exists <- doesDirectoryExist fp'
+            if global_conf_dir_exists
+                then do files <- getDirectoryContents fp'
+                        return  [ fp' </> file | file <- files, isSuffixOf ".conf" file]
+                else return []
+
+    -- Read a file, ensuring that UTF8 coding is used for GCH >= 6.12
+    readUTF8File :: FilePath -> IO String
+    readUTF8File file = do
+      h <- openFile file ReadMode
 #if __GLASGOW_HASKELL__ >= 612
-  -- fix the encoding to UTF-8
-  hSetEncoding h utf8
+      -- fix the encoding to UTF-8
+      hSetEncoding h utf8
 #endif
-  hGetContents h
+      hGetContents h
 
-lookForPackageDBIn :: FilePath -> IO (Maybe FilePath)
-lookForPackageDBIn dir = do
-  let path_dir = dir </> "package.conf.d"
-  exists_dir <- doesDirectoryExist path_dir
-  if exists_dir then return (Just path_dir) else do
-  let path_file = dir </> "package.conf"
-  exists_file <- doesFileExist path_file
-  if exists_file then return (Just path_file) else return Nothing
+    -- This function was lifted directly from ghc-pkg. Its sole purpose is
+    -- parsing an input package description string and producing an
+    -- InstalledPackageInfo structure.
+    convertPackageInfoIn :: InstalledPackageInfoString -> InstalledPackageInfo
+    convertPackageInfoIn
+        (pkgconf@(InstalledPackageInfo { exposedModules = e,
+                                         hiddenModules = h })) =
+            pkgconf{ exposedModules = map convert e,
+                     hiddenModules  = map convert h }
+        where convert = fromJust . simpleParse
+
+    -- Utility function that just flips the arguments to Control.Exception.catch
+    catchError :: IO a -> (String -> IO a) -> IO a
+    catchError io handler = io `Exception.catch` handler'
+        where handler' (Exception.ErrorCall err) = handler err
+  in do
+        confs <- listConf fp
+        let pkgInfoReader f = do
+                pkgStr <- readUTF8File f
+                let pkgs = map convertPackageInfoIn $ read pkgStr
+                Exception.evaluate pkgs
+                  `catchError` \e-> ioError $ userError ("error while parsing " ++ f ++ ": " ++ (show e))
+        pkgInfoList <- mapM pkgInfoReader confs
+        return [(fp, join pkgInfoList)]
+
+-----------------------------------------
+-- Adapted from GHC's util/ghc-pkg/Main.hs:
+-----------------------------------------
+
+#if defined(mingw32_HOST_OS)
+subst :: Char -> Char -> String -> String
+subst a b ls = map (\ x -> if x == a then b else x) ls
+
+unDosifyPath :: FilePath -> FilePath
+unDosifyPath xs = subst '\\' '/' xs
+
+getLibDir :: IO (Maybe String)
+getLibDir = fmap (fmap (</> "lib")) $ getExecDir "/bin/ghc-pkg.exe"
+
+-- (getExecDir cmd) returns the directory in which the current
+--                  executable, which should be called 'cmd', is running
+-- So if the full path is /a/b/c/d/e, and you pass "d/e" as cmd,
+-- you'll get "/a/b/c" back as the result
+getExecDir :: String -> IO (Maybe String)
+getExecDir cmd =
+    getExecPath >>= maybe (return Nothing) removeCmdSuffix
+    where initN n = reverse . drop n . reverse
+          removeCmdSuffix = return . Just . initN (length cmd) . unDosifyPath
+
+getExecPath :: IO (Maybe String)
+getExecPath =
+     allocaArray len $ \buf -> do
+         ret <- getModuleFileName nullPtr buf len
+         if ret == 0 then return Nothing
+                     else liftM Just $ peekCString buf
+    where len = 2048 -- Plenty, PATH_MAX is 512 under Win32.
+
+foreign import stdcall unsafe "GetModuleFileNameA"
+    getModuleFileName :: Ptr () -> CString -> Int -> IO Int32
+
+#else
+-- Assuming this is Unix or Mac OS X, then ghc-paths should set libdir
+-- for us.
+getLibDir :: IO (Maybe String)
+getLibDir = return (Just libdir)
 #endif
-        
-        
         
 currentArch :: String
 currentArch = System.Info.arch

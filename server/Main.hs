@@ -28,6 +28,7 @@ import Scion.Server.Generic as Gen
 --import qualified Scion.Server.ProtocolEmacs as Emacs
 import qualified Scion.Server.ConnectionIO as CIO
 import Scion (runScion)
+import qualified Scion.Types  as ST
 
 
 import Prelude hiding ( log )
@@ -185,7 +186,9 @@ main = do
 
   -- start server 
   logInfo "starting server"
-  -- E.handle (\(e :: SomeException) ->  "shutting down server due to exception "  ++ show e) $
+  -- E.handle (\(e :: E.SomeException) ->
+  --             do
+  --               logInfo ("shutting down server due to exception "  ++ show e)) $
   do
-      log HL.DEBUG $ "opts: " ++ (show startupConfig)
-      serve (connectionMode startupConfig)
+    log HL.DEBUG $ "opts: " ++ (show startupConfig)
+    serve (connectionMode startupConfig)

@@ -135,7 +135,7 @@ deletePrefixNameDB key (NameDB db) = NameDB (PM.deletePrefix key db)
 -- | Dump the contents of the DB to @stdout@.  For debugging purposes
 -- only.
 dumpNameDB :: NameDB -> ScionM ()
-dumpNameDB (NameDB db) = io $ do
+dumpNameDB (NameDB db) = liftIO $ do
   -- Note: It's in the ScionM monad because we require the
   -- static_flags global vars to be initialised before using Ghc.ppr
   forM_ (PM.toAscList db) $ \(name, mods_set) -> do
@@ -151,15 +151,15 @@ dumpNameDB (NameDB db) = io $ do
 -- turn requires an initialised session.
 readNameDB :: FilePath -> ScionM NameDB
 readNameDB path = do
-  io $ decodeFile path
+  liftIO $ decodeFile path
 
 buildNameDB :: ScionM NameDB
 buildNameDB = do
   pkg_db_mods <- Ghc.packageDbModules False
-  --io $ putStrLn $ Ghc.showSDoc (Ghc.ppr pkg_db_mods)
+  --liftIO $ putStrLn $ Ghc.showSDoc (Ghc.ppr pkg_db_mods)
   --let pkgs = S.toList . S.fromList $ map Ghc.modulePackageId pkg_db_mods
-  --io $ putStrLn $ (Ghc.showSDoc . Ghc.ppr $ pkgs)
-  --io $ print (length pkgs, length pkg_db_mods)
+  --liftIO $ putStrLn $ (Ghc.showSDoc . Ghc.ppr $ pkgs)
+  --liftIO $ print (length pkgs, length pkg_db_mods)
   --let base_mods = filter ((=="base") . Ghc.packageIdString . Ghc.modulePackageId) pkg_db_mods
   foldM nameDBAddModule emptyNameDB pkg_db_mods
 
@@ -181,9 +181,9 @@ scionNameDBLocation = do
 
 readOrCreateNameDB :: ScionM NameDB
 readOrCreateNameDB = do
-  loc <- io $ scionNameDBLocation
+  loc <- liftIO $ scionNameDBLocation
   -- TODO: Make atomic (open_or_create)
-  has_db <- io $ doesFileExist loc
+  has_db <- liftIO $ doesFileExist loc
   if has_db then
     -- TODO: Check if it's up to date (and relates to the correct
     -- package DB).  Requires checking the time stamp of all
@@ -195,13 +195,13 @@ readOrCreateNameDB = do
 -- | (Re-)create Name DB; overwrites any existing Name DB.
 createNameDB :: FilePath -> ScionM NameDB
 createNameDB loc = do
-  io $ createDirectoryIfMissing True (dropFileName loc)
+  liftIO $ createDirectoryIfMissing True (dropFileName loc)
   -- userMsg "Building index of all installed packages, this may take a while..."
 
   -- TODO: Build DB in a separate GHC session which is then thrown
   -- away (or reset the external package state).
   name_db <- buildNameDB
-  io $ encodeFile loc name_db
+  liftIO $ encodeFile loc name_db
   return name_db
 
 ----------------------------------------------------------------------

@@ -211,7 +211,7 @@ setActiveComponent the_comp@(Component comp) = do
        modifySessionState $ \sess -> 
            sess { activeComponent = Just the_comp }
      Just msg -> do
-       io $ throwIO $ userError msg -- XXX
+       liftIO $ throwIO $ userError msg -- XXX
   where
    needs_unloading (Just c) | c /= the_comp = True
    needs_unloading _ = False
@@ -280,20 +280,19 @@ unload = do
 addCmdLineFlags :: [String] -> ScionM [PackageId]
 addCmdLineFlags flags = do
   message deafening $ "Setting Flags: " ++ show flags
-  liftIO $ putStrLn $ "Setting Flags: " ++ show flags
   dflags <- getSessionDynFlags
   res <- gtry $ parseDynamicFlags dflags (map noLoc flags)
   case res of
     Left (UsageError msg) -> do
       liftIO $ putStrLn $ "Dynflags parse error: " ++ msg
       return []
-    Left e -> liftIO $ throwIO e
+    Left e -> do
+      liftIO $ throwIO e
     Right (dflags', unknown, warnings) -> do
       unless (null unknown) $
         liftIO $ putStrLn $ "Unrecognised flags:\n" ++ show (map unLoc unknown)
       liftIO $ mapM_ putStrLn $ map unLoc warnings
       setSessionDynFlags dflags'
-
 
 -- | Set the verbosity of the GHC API.
 setGHCVerbosity :: Int -> ScionM ()

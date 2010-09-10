@@ -116,21 +116,21 @@ cabalComponentInit :: CabalComponent -> ScionM (Maybe String)
 cabalComponentInit c = do
   -- TODO: verify that components exist in cabal file
   let cabal_file = cabalFile c
-  ok <- io $ doesFileExist cabal_file
+  ok <- liftIO $ doesFileExist cabal_file
   if not ok then return (Just ".cabal file does not exist") else do
    let root_dir = dropFileName cabal_file
    let setup_config = localBuildInfoFile (root_dir </> scionDistDir)
-   conf'd <- io $ doesFileExist setup_config
+   conf'd <- liftIO $ doesFileExist setup_config
    if not conf'd then do
       message deafening "Configuring: for first time" 
       do_configure root_dir else do
-     cabal_time <- io $ getModificationTime cabal_file
-     conf_time <- io $ getModificationTime setup_config
+     cabal_time <- liftIO $ getModificationTime cabal_file
+     conf_time <- liftIO $ getModificationTime setup_config
      if cabal_time >= conf_time then do
        message deafening "Reconfiguring: .cabal file is newer"
        do_configure root_dir
       else do
-        mb_lbi <- io $ maybeGetPersistBuildConfig 
+        mb_lbi <- liftIO $ maybeGetPersistBuildConfig 
                          (root_dir </> scionDistDir)
         case mb_lbi of
           Nothing -> do
@@ -182,13 +182,13 @@ cabalTargets (Executable f name) = do
 cabal_package :: FilePath -> ScionM PD.PackageDescription   
 cabal_package f = do
   let root_dir = dropFileName f
-  lbi <- io $ getPersistBuildConfig (root_dir </> scionDistDir)
+  lbi <- liftIO $ getPersistBuildConfig (root_dir </> scionDistDir)
   return $ localPkgDescr lbi
 
 cabal_build_info :: FilePath -> ScionM LocalBuildInfo
 cabal_build_info f = do
   let root_dir = dropFileName f
-  io $ getPersistBuildConfig (root_dir </> scionDistDir)
+  liftIO $ getPersistBuildConfig (root_dir </> scionDistDir)
 
 -- | Return command line flags for the component.
 cabalDynFlags :: CabalComponent -> ScionM [String]
@@ -253,7 +253,7 @@ cabalProjectComponents cabal_file = do
 cabalParse :: FilePath -> ScionM PD.GenericPackageDescription
 cabalParse cabal_file = do  
   ghandle (\(_ :: ExitCode) ->
-                io $ throwIO $ CannotOpenCabalProject cabal_file) $ do
+                liftIO $ throwIO $ CannotOpenCabalProject cabal_file) $ do
     gpd <- liftIO $ PD.readPackageDescription V.silent cabal_file 
     return gpd
 
@@ -262,7 +262,7 @@ cabalDependencies :: FilePath -> ScionM [(FilePath,[CabalPackage])]
 cabalDependencies cabal_file = do
     gpd <- cabalParse cabal_file
     ghandle (\(e :: IOError) ->
-               io $ throwIO $ CannotListPackages $ show e) $ do
+               liftIO $ throwIO $ CannotListPackages $ show e) $ do
             pkgs<-liftIO $ getPkgInfos
             return $ dependencies cabal_file gpd pkgs
     
@@ -375,9 +375,9 @@ cabalConfigurations _cabal _type' _scionDefaultOnly = do
 preprocessPackage :: FilePath
                   -> ScionM ()
 preprocessPackage dist_dir = do
-  lbi <- io $ getPersistBuildConfig (localBuildInfoFile dist_dir)
+  lbi <- liftIO $ getPersistBuildConfig (localBuildInfoFile dist_dir)
   let pd = localPkgDescr lbi
-  io $ initialBuildSteps dist_dir pd lbi V.normal knownSuffixHandlers
+  liftIO $ initialBuildSteps dist_dir pd lbi V.normal knownSuffixHandlers
   return ()
 
 cabalModuleNameToTarget :: PD.ModuleName -> Target
@@ -414,7 +414,7 @@ configureCabalProject ::
   -> ScionM ()
 configureCabalProject root_dir dist_dir _extra_args = do
    cabal_file <- find_cabal_file
-   gen_pkg_descr <- io $ readPackageDescription V.normal cabal_file
+   gen_pkg_descr <- liftIO $ readPackageDescription V.normal cabal_file
    let prog_conf =
          userSpecifyPaths [("ghc", ghc), ("ghc-pkg", ghc_pkg)]
            defaultProgramConfiguration
@@ -427,17 +427,17 @@ configureCabalProject root_dir dist_dir _extra_args = do
            }
    setWorkingDir root_dir
    ghandle (\(e :: IOError) ->
-               io $ throwIO $ 
+               liftIO $ throwIO $ 
                 CannotOpenCabalProject ("Failed to configure: " ++ (show e))) $ do
 #if CABAL_VERSION < 107
-     lbi <- io $ configure (Left gen_pkg_descr, (Nothing, []))
+     lbi <- liftIO $ configure (Left gen_pkg_descr, (Nothing, []))
                            config_flags
 #else
-     lbi <- io $ configure (gen_pkg_descr, (Nothing, []))
+     lbi <- liftIO $ configure (gen_pkg_descr, (Nothing, []))
                            config_flags
 #endif
-     io $ writePersistBuildConfig dist_dir lbi
-     io $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal
+     liftIO $ writePersistBuildConfig dist_dir lbi
+     liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal
                             knownSuffixHandlers
 
  where
@@ -445,8 +445,8 @@ configureCabalProject root_dir dist_dir _extra_args = do
       fs <- liftIO $ getDirectoryContents root_dir
       case [ f | f <- fs, takeExtension f == ".cabal" ] of
         [f] -> return $ root_dir </> f
-        [] -> io $ throwIO $ CannotOpenCabalProject "no .cabal file"
-        _ -> io $ throwIO $ 
+        [] -> liftIO $ throwIO $ CannotOpenCabalProject "no .cabal file"
+        _ -> liftIO $ throwIO $ 
                CannotOpenCabalProject "Too many .cabal files"
 
 instance JSON CabalComponent where
