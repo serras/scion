@@ -19,14 +19,15 @@ import System.IO (Handle, hFlush)
 import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, send)
 import Data.IORef
-import qualified System.Log.Logger as HL
+{- FIXME: unused import qualified System.Log.Logger as HL -}
 import qualified Data.ByteString.Char8 as S
 
+{- FIXME: unused
 log :: HL.Priority -> String -> IO ()
 log = HL.logM "io.connection"
 
 logError :: String -> IO ()
-logError = log HL.ERROR
+logError = log HL.ERROR -}
 
 class ConnectionIO con where
   getLine :: con -> IO S.ByteString

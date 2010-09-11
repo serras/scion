@@ -29,7 +29,7 @@ import Scion.Inspect.TypeOf
 import Scion.Types.Notes
 import Scion.Types.Outline
 import Scion.Types
-import Scion.Session
+import Scion.Session()
 
 import DynFlags
 import ErrUtils
@@ -225,10 +225,11 @@ outline base_dir m
        ++ instBinds base_dir grp
 outline _ _ = []
 
+{- FIXME: unused
 tokens :: FilePath -> Module -> ScionM ([TokenDef])
 tokens base_dir m = do
         ts<-getTokenStream m
-        return $ catMaybes $ map (mkTokenDef base_dir) ts
+        return $ catMaybes $ map (mkTokenDef base_dir) ts -}
 
 tokensArbitrary :: FilePath  -> String -> ScionM (Either Note [TokenDef])
 tokensArbitrary base_dir contents = do
@@ -584,6 +585,9 @@ tokenType  ITlarrowtail="A"                --  -<
 tokenType  ITrarrowtail="A"                --  >-
 tokenType  ITLarrowtail="A"                --  -<<
 tokenType  ITRarrowtail="A"                --  >>-
+
+tokenType  ITdotnet="SS"                   -- ??
+tokenType  (ITpragma _) = "SS"             -- ??
 
 tokenType  (ITunknown {})=""           -- Used when the lexer can't make sense of it
 tokenType  ITeof=""                       -- end of file token

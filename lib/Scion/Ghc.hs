@@ -30,6 +30,7 @@ isRecStmt _ = False
 
 recS_stmts :: StmtLR idL idR -> [LStmtLR idL idR]
 recS_stmts (RecStmt ss _ _ _ _) = ss
+recS_stmts _ = undefined                     -- FIXME: What should this be?
 
 #else
 

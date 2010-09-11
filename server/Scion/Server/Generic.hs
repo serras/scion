@@ -16,15 +16,17 @@ import Text.JSON.AttoJSON
 --import Text.JSON.Types
 import qualified Data.ByteString.Char8 as S
 --import qualified Data.ByteString.UTF8 as S
-import qualified System.Log.Logger as HL
+{- FIXME: unused import qualified System.Log.Logger as HL -}
 
 --import System.CPUTime
 --import Text.Printf
 
+{- FIXME: unused
 log :: HL.Priority -> String -> IO ()
 log = HL.logM "protocol.generic"
 logDebug :: MonadIO m => String -> m ()
 logDebug = liftIO . log HL.DEBUG
+-}
 
 type StopServer = Bool
 

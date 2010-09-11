@@ -277,12 +277,14 @@ decodeBool :: JSValue -> Bool
 decodeBool (JSBool b) = b
 decodeBool _ = error "no bool"
 
+{- Unused at the moment
 decodeExtraArgs :: JSValue -> [String]
-decodeExtraArgs JSNull = []
-decodeExtraArgs (JSString s) =
-    words (S.unpack s) -- TODO: check shell-escaping
-decodeExtraArgs (JSArray arr) =
-    [ S.unpack s | JSString s <- arr ]
+decodeExtraArgs JSNull         = []
+decodeExtraArgs (JSString s)   = words (S.unpack s) -- TODO: check shell-escaping
+decodeExtraArgs (JSArray arr)  = [ S.unpack s | JSString s <- arr ]
+decodeExtraArgs (JSBool b)     = [ (show b) ]
+decodeExtraArgs (JSNumber b)   = [ (show b) ]
+decodeExtraArgs (JSObject _)   = undefined -}
 
 instance JSON Component where
   fromJSON obj = do
@@ -433,7 +435,7 @@ cmdListCabalComponents =
 cmdParseCabal :: Cmd
 cmdParseCabal = 
     Cmd "parse-cabal" $ reqArg' "cabal-file" S.unpack $ cmd
-  where cmd cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
+  where cmd _cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
 
 cmdParseCabalArbitrary :: Cmd
 cmdParseCabalArbitrary = 
@@ -456,7 +458,7 @@ cmdListCabalConfigurations =
       reqArg' "cabal-file" S.unpack <&>
       optArg' "type" "uniq" id <&>
       optArg' "scion-default" False decodeBool $ cmd
-  where cmd cabal_file type' scionDefault = return (JSArray []) -- liftM toJSON $ cabalConfigurations cabal_file type' scionDefault
+  where cmd _cabal_file _type' _scionDefault = return (JSArray []) -- liftM toJSON $ cabalConfigurations cabal_file type' scionDefault
 
 cmdWriteSampleConfig :: Cmd
 cmdWriteSampleConfig =

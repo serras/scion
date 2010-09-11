@@ -278,10 +278,10 @@ unload = do
 -- Does not set the flags if a parse error occurs.  XXX: There's currently
 -- no way to find out if there was an error from inside the program.
 addCmdLineFlags :: [String] -> ScionM [PackageId]
-addCmdLineFlags flags = do
-  message deafening $ "Setting Flags: " ++ show flags
+addCmdLineFlags cmdFlags = do
+  message deafening $ "Setting Flags: " ++ show cmdFlags
   dflags <- getSessionDynFlags
-  res <- gtry $ parseDynamicFlags dflags (map noLoc flags)
+  res <- gtry $ parseDynamicFlags dflags (map noLoc cmdFlags)
   case res of
     Left (UsageError msg) -> do
       liftIO $ putStrLn $ "Dynflags parse error: " ++ msg

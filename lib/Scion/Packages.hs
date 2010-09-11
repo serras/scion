@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, CPP #-}
+{-# LANGUAGE CPP #-}
 -- |
 -- Module      : Scion.Packages
 -- Author      : Thiago Arrais
@@ -145,6 +145,8 @@ readContents fp =
 #endif
       hGetContents h
 
+    pkgInfoReader :: FilePath -> IO [InstalledPackageInfo]
+
 #if CABAL_VERSION < 108
     -- This function was lifted directly from ghc-pkg. Its sole purpose is
     -- parsing an input package description string and producing an
@@ -161,7 +163,7 @@ readContents fp =
 	pkgStr <- readUTF8File f
 	let pkgs = map convertPackageInfoIn $ read pkgStr
 	Exception.evaluate pkgs
-	  `catchError` \e-> ioError $ userError $ "parsing " ++ f ++ ": " ++ (show e)
+	 `catchError` (\e-> ioError $ userError $ "parsing " ++ f ++ ": " ++ (show e))
 
     -- Utility function that just flips the arguments to Control.Exception.catch
     catchError :: IO a -> (String -> IO a) -> IO a
@@ -176,8 +178,7 @@ readContents fp =
       case pkgInfo of
 	ParseOk _ info -> return [info]
 	-- Serious FIXME: You'd want to return the error here.
-        ParseFailed e  -> ioError $ userError $ "parsing " ++ f ++ ": " ++ (show e)
-	-- return [emptyInstalledPackageInfo]
+        ParseFailed e  -> return [emptyInstalledPackageInfo]
 #endif
   in do
         confs <- listConf fp
