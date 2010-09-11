@@ -161,7 +161,7 @@ readContents fp =
 	pkgStr <- readUTF8File f
 	let pkgs = map convertPackageInfoIn $ read pkgStr
 	Exception.evaluate pkgs
-	  `catchError` \e-> ioError $ "error while parsing " ++ f ++ ": " ++ (show e)
+	  `catchError` \e-> ioError $ userError $ "parsing " ++ f ++ ": " ++ (show e)
 
     -- Utility function that just flips the arguments to Control.Exception.catch
     catchError :: IO a -> (String -> IO a) -> IO a
@@ -176,7 +176,8 @@ readContents fp =
       case pkgInfo of
 	ParseOk _ info -> return [info]
 	-- Serious FIXME: You'd want to return the error here.
-        ParseFailed _  -> return [emptyInstalledPackageInfo]
+        ParseFailed e  -> ioError $ userError $ "parsing " ++ f ++ ": " ++ (show e)
+	-- return [emptyInstalledPackageInfo]
 #endif
   in do
         confs <- listConf fp
