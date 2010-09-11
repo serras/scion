@@ -11,31 +11,30 @@
 -- Portability : portable
 -- 
 -- Cabal-related functionality.
-module Scion.Packages ( getPkgInfos) where
+module Scion.Packages ( getPkgInfos ) where
 
+import Prelude hiding (Maybe)
 import qualified Config
 import qualified System.Info
 import Data.List
 import Data.Maybe
 import Control.Monad
 import Distribution.InstalledPackageInfo
-import Distribution.Text
-import qualified Control.Exception as Exception
-import GHC.Paths
 import System.Directory
 import System.Environment (getEnv)
 import System.FilePath
 import System.IO
 import System.IO.Error
 
-#if __GLASGOW_HASKELL__ < 612 || defined(mingw32_HOST_OS)
--- mingw32 needs these for getExecDir, GHC <6.12 needs them for openNewFile
-import Foreign
-import Foreign.C
-#endif
+import GHC.Paths
+
+#if CABAL_VERSION < 108
+import Distribution.Text
+import qualified Control.Exception as Exception
 
 -- This was borrowed from the ghc-pkg source:
 type InstalledPackageInfoString = InstalledPackageInfo_ String
+#endif
 
 -- | Fetch the installed package info from the global and user package.conf
 -- databases, mimicking the functionality of ghc-pkg.
@@ -43,7 +42,11 @@ type InstalledPackageInfoString = InstalledPackageInfo_ String
 getPkgInfos :: IO [(FilePath,[InstalledPackageInfo])]
 getPkgInfos = 
   let
+    err_msg = "Unable to determine the location of global package.conf\n"
+    
     -- | Test for package database's presence in a given directory
+    -- NB: The directory is returned for later scanning by listConf,
+    -- which parses the actual package database file(s).
     lookForPackageDBIn :: FilePath -> IO (Maybe FilePath)
     lookForPackageDBIn dir =
       let
@@ -56,11 +59,10 @@ getPkgInfos =
           else do
             exists_file <- doesFileExist path_file
             if exists_file
-              then return (Just path_file)
+              then return (Just dir)
               else return Nothing
 
   in do
-    let err_msg = "Unable to determine the location of global package.conf\n"
 
     -- Get the global package configuration database:
     global_conf <- do
@@ -70,8 +72,8 @@ getPkgInfos =
         Just dir -> do
           r <- lookForPackageDBIn dir
           case r of
-            Nothing -> ioError $ userError ("Can't find package database in " ++ dir)
-            Just _  -> return dir
+            Nothing     -> ioError $ userError ("Can't find package database in " ++ dir)
+            Just dbDir  -> return dbDir
 
     global_confs <- readContents global_conf
 
@@ -85,8 +87,8 @@ getPkgInfos =
                  dir = appdir </> subdir
              r <- lookForPackageDBIn dir
              case r of
-               Nothing -> return []
-               Just _  -> readContents dir
+               Nothing     -> return []
+               Just dbDir  -> readContents dbDir
 
     -- Process GHC_PACKAGE_PATH, if present:
     e_pkg_path <- try (getEnv "GHC_PACKAGE_PATH")
@@ -143,6 +145,7 @@ readContents fp =
 #endif
       hGetContents h
 
+#if CABAL_VERSION < 108
     -- This function was lifted directly from ghc-pkg. Its sole purpose is
     -- parsing an input package description string and producing an
     -- InstalledPackageInfo structure.
@@ -154,61 +157,35 @@ readContents fp =
                      hiddenModules  = map convert h }
         where convert = fromJust . simpleParse
 
+    pkgInfoReader f = do
+	pkgStr <- readUTF8File f
+	let pkgs = map convertPackageInfoIn $ read pkgStr
+	Exception.evaluate pkgs
+	  `catchError` \e-> ioError $ "error while parsing " ++ f ++ ": " ++ (show e)
+
     -- Utility function that just flips the arguments to Control.Exception.catch
     catchError :: IO a -> (String -> IO a) -> IO a
     catchError io handler = io `Exception.catch` handler'
         where handler' (Exception.ErrorCall err) = handler err
+#else
+    -- Slightly different approach in Cabal 1.8 series, with the package.conf.d directories,
+    -- where individual package configuration files are association pairs:
+    pkgInfoReader f = do
+      pkgStr <- readUTF8File f
+      let pkgInfo = parseInstalledPackageInfo pkgStr
+      case pkgInfo of
+	ParseOk _ info -> return [info]
+	-- Serious FIXME: You'd want to return the error here.
+        ParseFailed _  -> return [emptyInstalledPackageInfo]
+#endif
   in do
         confs <- listConf fp
-        let pkgInfoReader f = do
-                pkgStr <- readUTF8File f
-                let pkgs = map convertPackageInfoIn $ read pkgStr
-                Exception.evaluate pkgs
-                  `catchError` \e-> ioError $ userError ("error while parsing " ++ f ++ ": " ++ (show e))
         pkgInfoList <- mapM pkgInfoReader confs
         return [(fp, join pkgInfoList)]
 
------------------------------------------
--- Adapted from GHC's util/ghc-pkg/Main.hs:
------------------------------------------
-
-#if defined(mingw32_HOST_OS)
-subst :: Char -> Char -> String -> String
-subst a b ls = map (\ x -> if x == a then b else x) ls
-
-unDosifyPath :: FilePath -> FilePath
-unDosifyPath xs = subst '\\' '/' xs
-
-getLibDir :: IO (Maybe String)
-getLibDir = fmap (fmap (</> "lib")) $ getExecDir "/bin/ghc-pkg.exe"
-
--- (getExecDir cmd) returns the directory in which the current
---                  executable, which should be called 'cmd', is running
--- So if the full path is /a/b/c/d/e, and you pass "d/e" as cmd,
--- you'll get "/a/b/c" back as the result
-getExecDir :: String -> IO (Maybe String)
-getExecDir cmd =
-    getExecPath >>= maybe (return Nothing) removeCmdSuffix
-    where initN n = reverse . drop n . reverse
-          removeCmdSuffix = return . Just . initN (length cmd) . unDosifyPath
-
-getExecPath :: IO (Maybe String)
-getExecPath =
-     allocaArray len $ \buf -> do
-         ret <- getModuleFileName nullPtr buf len
-         if ret == 0 then return Nothing
-                     else liftM Just $ peekCString buf
-    where len = 2048 -- Plenty, PATH_MAX is 512 under Win32.
-
-foreign import stdcall unsafe "GetModuleFileNameA"
-    getModuleFileName :: Ptr () -> CString -> Int -> IO Int32
-
-#else
--- Assuming this is Unix or Mac OS X, then ghc-paths should set libdir
--- for us.
+-- GHC.Path sets libdir for us...
 getLibDir :: IO (Maybe String)
 getLibDir = return (Just libdir)
-#endif
         
 currentArch :: String
 currentArch = System.Info.arch

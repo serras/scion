@@ -42,7 +42,7 @@ import System.Exit ( ExitCode(..) )
 
 import qualified Distribution.ModuleName as PD
                        ( ModuleName, components )
-import Distribution.Simple.Configure
+-- FIXME: unused import Distribution.Simple.Configure
 import Distribution.Simple.GHC ( ghcOptions )
 import Distribution.Simple.LocalBuildInfo hiding ( libdir )
 import Distribution.Simple.Build ( initialBuildSteps )
@@ -303,7 +303,7 @@ dependencies cabal_file gpd pkgs=let
                       | e <- PD.executables pd ]
         gdeps=PD.buildDepends pd
         cpkgs=concat $ DM.elems $ DM.map (\ipis->getDep allC ipis gdeps []) pkgsMap
-        in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,b)->(a,[])) pkgs))
+        in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,_)->(a,[])) pkgs))
         where 
 #if CABAL_VERSION == 106
 		sourcePackageId = package
@@ -479,6 +479,5 @@ instance JSON CabalPackage where
 instance (Data a) => JSON (PD.ParseResult a) where
         fromJSON _= undefined
         toJSON (PD.ParseFailed pf)=Dic.makeObject [(Dic.error,JSString (S.pack $ show pf))]
-        toJSON (PD.ParseOk wrns a)=Dic.makeObject [(Dic.warnings,JSArray (map (JSString . S.pack . show) wrns)),
+        toJSON (PD.ParseOk wrns _)=Dic.makeObject [(Dic.warnings,JSArray (map (JSString . S.pack . show) wrns)),
                 (Dic.result,JSObject DM.empty)] --toJSON a
- 
