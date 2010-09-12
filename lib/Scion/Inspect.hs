@@ -586,8 +586,10 @@ tokenType  ITrarrowtail="A"                --  >-
 tokenType  ITLarrowtail="A"                --  -<<
 tokenType  ITRarrowtail="A"                --  >>-
 
+#if GHC_VERSION < 611
 tokenType  ITdotnet="SS"                   -- ??
 tokenType  (ITpragma _) = "SS"             -- ??
+#endif
 
 tokenType  (ITunknown {})=""           -- Used when the lexer can't make sense of it
 tokenType  ITeof=""                       -- end of file token
