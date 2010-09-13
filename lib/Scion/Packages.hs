@@ -20,6 +20,7 @@ import Data.List
 import Data.Maybe
 import Control.Monad
 import Distribution.InstalledPackageInfo
+import Distribution.Text
 import System.Directory
 import System.Environment (getEnv)
 import System.FilePath
@@ -28,13 +29,10 @@ import System.IO.Error
 
 import GHC.Paths
 
-#if CABAL_VERSION < 108
-import Distribution.Text
 import qualified Control.Exception as Exception
 
 -- This was borrowed from the ghc-pkg source:
 type InstalledPackageInfoString = InstalledPackageInfo_ String
-#endif
 
 -- | Types of cabal package databases
 data CabalPkgDBType =
@@ -63,33 +61,33 @@ getPkgInfos =
         exists_dir <- doesDirectoryExist path_dir
         if exists_dir
           then do
-	    pkgs <- readContents (PkgDirectory path_dir)
-	    return $ Just pkgs
+            pkgs <- readContents (PkgDirectory path_dir)
+            return $ Just pkgs
           else do
             exists_file <- doesFileExist path_file
             if exists_file
               then do
-	        pkgs <- readContents (PkgFile path_file)
-		return $ Just pkgs 
+                pkgs <- readContents (PkgFile path_file)
+                return $ Just pkgs 
               else return Nothing
 
     parseSearchPath :: String -> [FilePath]
     parseSearchPath path = split path
       where
-	split :: String -> [String]
-	split s =
-	  case rest' of
-	    []     -> [chunk]
-	    _:rest -> chunk : split rest
-	  where
-	    chunk =
-	      case chunk' of
+        split :: String -> [String]
+        split s =
+          case rest' of
+            []     -> [chunk]
+            _:rest -> chunk : split rest
+          where
+            chunk =
+              case chunk' of
 #ifdef mingw32_HOST_OS
-		('\"':xs@(_:_)) | last xs == '\"' -> init xs
+                ('\"':xs@(_:_)) | last xs == '\"' -> init xs
 #endif
-		_                                 -> chunk'
+                _                                 -> chunk'
 
-	    (chunk', rest') = break isSearchPathSeparator s
+            (chunk', rest') = break isSearchPathSeparator s
   in do
     -- Get the global package configuration database:
     global_conf <- do
@@ -134,69 +132,70 @@ readContents :: CabalPkgDBType                                  -- ^ The package
                 -> IO [(FilePath, [InstalledPackageInfo])]      -- ^ Installed packages
 
 readContents pkgdb =
-  case pkgdb of
-  (PkgDirectory pkgdbDir) -> do
-    confs <- listConf pkgdbDir
-    pkgInfoList <- mapM pkgInfoReader confs
-    return [(pkgdbDir, join pkgInfoList)]
+  let 
+    -- | List package configuration files that might live in the given directory
+    listConf :: FilePath -> IO [FilePath]
+    listConf dbdir = do
+      conf_dir_exists <- doesDirectoryExist dbdir
+      if conf_dir_exists
+        then do
+          files <- getDirectoryContents dbdir
+          return  [ dbdir </> file | file <- files, isSuffixOf ".conf" file]
+        else return []
 
-  (PkgFile dbFile) -> do
-    pkgStr <- readUTF8File dbFile
-    let pkgs = map convertPackageInfoIn $ read pkgStr
-    pkgInfoList <-
-      Exception.evaluate pkgs
-	`catchError`
-	(\e-> ioError $ userError $ "parsing " ++ dbFile ++ ": " ++ (show e))
-    return [(takeDirectory dbFile, pkgInfoList)]
-
--- | List package configuration files that might live in the given directory
-listConf :: FilePath -> IO [FilePath]
-listConf pkgdb = do
-  conf_dir_exists <- doesDirectoryExist pkgdb
-  if conf_dir_exists
-    then do
-      files <- getDirectoryContents pkgdb
-      return  [ pkgdb </> file | file <- files, isSuffixOf ".conf" file]
-    else return []
-
--- | Read a file, ensuring that UTF8 coding is used for GCH >= 6.12
-readUTF8File :: FilePath -> IO String
-readUTF8File file = do
-  h <- openFile file ReadMode
+    -- | Read a file, ensuring that UTF8 coding is used for GCH >= 6.12
+    readUTF8File :: FilePath -> IO String
+    readUTF8File file = do
+      h <- openFile file ReadMode
 #if __GLASGOW_HASKELL__ >= 612
-  -- fix the encoding to UTF-8
-  hSetEncoding h utf8
+      -- fix the encoding to UTF-8
+      hSetEncoding h utf8
 #endif
-  hGetContents h
+      hGetContents h
 
--- | This function was lifted directly from ghc-pkg. Its sole purpose is
--- parsing an input package description string and producing an
--- InstalledPackageInfo structure.
-convertPackageInfoIn :: InstalledPackageInfoString -> InstalledPackageInfo
-convertPackageInfoIn
-    (pkgconf@(InstalledPackageInfo { exposedModules = e,
-				     hiddenModules = h })) =
-	pkgconf{ exposedModules = map convert e,
-		 hiddenModules  = map convert h }
-    where convert = fromJust . simpleParse
+    -- | This function was lifted directly from ghc-pkg. Its sole purpose is
+    -- parsing an input package description string and producing an
+    -- InstalledPackageInfo structure.
+    convertPackageInfoIn :: InstalledPackageInfoString -> InstalledPackageInfo
+    convertPackageInfoIn
+        (pkgconf@(InstalledPackageInfo { exposedModules = e,
+                                         hiddenModules = h })) =
+            pkgconf{ exposedModules = map convert e,
+                     hiddenModules  = map convert h }
+        where convert = fromJust . simpleParse
 
--- Utility function that just flips the arguments to Control.Exception.catch
-catchError :: IO a -> (String -> IO a) -> IO a
-catchError io handler = io `Exception.catch` handler'
-    where handler' (Exception.ErrorCall err) = handler err
+    -- | Utility function that just flips the arguments to Control.Exception.catch
+    catchError :: IO a -> (String -> IO a) -> IO a
+    catchError io handler = io `Exception.catch` handler'
+        where handler' (Exception.ErrorCall err) = handler err
 
--- | Slightly different approach in Cabal 1.8 series, with the package.conf.d
--- directories, where individual package configuration files are association
--- pairs.
-pkgInfoReader ::  FilePath
-                  -> IO [InstalledPackageInfo]
-pkgInfoReader f = do
-  pkgStr <- readUTF8File f
-  let pkgInfo = parseInstalledPackageInfo pkgStr
-  case pkgInfo of
-    ParseOk _ info -> return [info]
-    -- Serious FIXME: You'd want to return the error here.
-    ParseFailed _  -> return [emptyInstalledPackageInfo]
+    -- | Slightly different approach in Cabal 1.8 series, with the package.conf.d
+    -- directories, where individual package configuration files are association
+    -- pairs.
+    pkgInfoReader ::  FilePath
+                      -> IO [InstalledPackageInfo]
+    pkgInfoReader f = do
+      pkgStr <- readUTF8File f
+      let pkgInfo = parseInstalledPackageInfo pkgStr
+      case pkgInfo of
+        ParseOk _ info -> return [info]
+        -- FIXME: You'd want to return the error here.
+        ParseFailed _  -> return [emptyInstalledPackageInfo]
+
+  in case pkgdb of
+      (PkgDirectory pkgdbDir) -> do
+        confs <- listConf pkgdbDir
+        pkgInfoList <- mapM pkgInfoReader confs
+        return [(pkgdbDir, join pkgInfoList)]
+
+      (PkgFile dbFile) -> do
+        pkgStr <- readUTF8File dbFile
+        let pkgs = map convertPackageInfoIn $ read pkgStr
+        pkgInfoList <-
+          Exception.evaluate pkgs
+            `catchError`
+            (\e-> ioError $ userError $ "parsing " ++ dbFile ++ ": " ++ (show e))
+        return [(takeDirectory dbFile, pkgInfoList)]
 
 -- GHC.Path sets libdir for us...
 getLibDir :: IO (Maybe String)
