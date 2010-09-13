@@ -47,8 +47,6 @@ type InstalledPackagesList = [(FilePath, [InstalledPackageInfo])]
 getPkgInfos :: IO InstalledPackagesList
 getPkgInfos = 
   let
-    err_msg = "Unable to determine the location of global package.conf\n"
-    
     -- | Test for package database's presence in a given directory
     -- NB: The directory is returned for later scanning by listConf,
     -- which parses the actual package database file(s).
@@ -71,34 +69,21 @@ getPkgInfos =
                 return $ Just pkgs 
               else return Nothing
 
-    parseSearchPath :: String -> [FilePath]
-    parseSearchPath path = split path
-      where
-        split :: String -> [String]
-        split s =
-          case rest' of
-            []     -> [chunk]
-            _:rest -> chunk : split rest
-          where
-            chunk =
-              case chunk' of
-#ifdef mingw32_HOST_OS
-                ('\"':xs@(_:_)) | last xs == '\"' -> init xs
-#endif
-                _                                 -> chunk'
+    currentArch :: String
+    currentArch = System.Info.arch
 
-            (chunk', rest') = break isSearchPathSeparator s
+    currentOS :: String
+    currentOS = System.Info.os
+
+    ghcVersion :: String
+    ghcVersion = Config.cProjectVersion
   in do
     -- Get the global package configuration database:
     global_conf <- do
-      proposed <- getLibDir
-      case proposed of
-        Nothing  -> ioError $ userError err_msg
-        Just dir -> do
-          r <- lookForPackageDBIn dir
-          case r of
-            Nothing   -> ioError $ userError ("Can't find package database in " ++ dir)
-            Just pkgs -> return $ pkgs
+      r <- lookForPackageDBIn getLibDir
+      case r of
+        Nothing   -> ioError $ userError ("Can't find package database in " ++ getLibDir)
+        Just pkgs -> return $ pkgs
 
     -- Get the user package configuration database
     e_appdir <- try $ getAppUserDataDirectory "ghc"
@@ -119,7 +104,7 @@ getPkgInfos =
       case e_pkg_path of
         Left _     -> return []
         Right path -> do
-          pkgs <- mapM readContents [(PkgDirectory pkg) | pkg <- parseSearchPath path]
+          pkgs <- mapM readContents [(PkgDirectory pkg) | pkg <- splitSearchPath path]
           return $ concat pkgs
 
     -- Send back the combined installed packages list:
@@ -198,14 +183,5 @@ readContents pkgdb =
         return [(takeDirectory dbFile, pkgInfoList)]
 
 -- GHC.Path sets libdir for us...
-getLibDir :: IO (Maybe String)
-getLibDir = return (Just libdir)
-        
-currentArch :: String
-currentArch = System.Info.arch
-
-currentOS :: String
-currentOS = System.Info.os
-
-ghcVersion :: String
-ghcVersion = Config.cProjectVersion
+getLibDir :: String
+getLibDir = libdir
