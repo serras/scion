@@ -7,13 +7,66 @@ import Scion.Types
 import Scion.Types.Notes
 import Scion.Types.Outline
 
+import Text.JSON.AttoJSON
+
 import System.Directory
 import System.FilePath
-
+import qualified Data.ByteString.Char8 as S
 import Test.HUnit
 
 inspectTests :: Test
-inspectTests=TestList [testNoPreproc,testPreproc,testPreproc2Lines,testLiterate]
+inspectTests=TestList [testTokenTypesSimple,testTokenTypesPreproc,testTokenTypesPreproc2Lines,testTokenTypesLiteral,
+        testNoPreproc,testPreproc,testPreproc2Lines,testLiterate]
+
+
+testTokenTypesSimple :: Test
+testTokenTypesSimple = TestLabel "testTokenTypesSimple" (TestCase (
+        do
+        let contents="module Main\nwhere\nimport Data.Map\nmain=undefined\n"
+        base_dir <- getCurrentDirectory
+        Right tks<-runScion $ do
+                tokenTypesArbitrary base_dir contents False
+        let expected=S.pack "[[\"K\", 1, 0, 1, 6], [\"IC\", 1, 7, 1, 11], [\"K\", 2, 0, 2, 5], [\"K\", 3, 0, 3, 6], [\"IC\", 3, 7, 3, 15], [\"IV\", 4, 0, 4, 4], [\"S\", 4, 4, 4, 5], [\"IV\", 4, 5, 4, 14]]"
+        let actual=showJSON $ toJSON tks
+        assertEqual "unexpected content" expected actual
+        ))
+
+testTokenTypesPreproc :: Test
+testTokenTypesPreproc = TestLabel "testTokenTypesPreproc" (TestCase (
+        do
+        let contents="module Main\nwhere\n#if GHC_VERSION=612\nimport Data.Map\n#endif\nmain=undefined\n"
+        base_dir <- getCurrentDirectory
+        Right tks<-runScion $ do
+                tokenTypesArbitrary base_dir contents False
+        let expected=S.pack "[[\"K\", 1, 0, 1, 6], [\"IC\", 1, 7, 1, 11], [\"K\", 2, 0, 2, 5], [\"PP\", 3, 0, 3, 19], [\"K\", 4, 0, 4, 6], [\"IC\", 4, 7, 4, 15], [\"PP\", 5, 0, 5, 6], [\"IV\", 6, 0, 6, 4], [\"S\", 6, 4, 6, 5], [\"IV\", 6, 5, 6, 14]]"
+        let actual=showJSON $ toJSON tks
+        assertEqual "unexpected content" expected actual
+        ))
+
+testTokenTypesPreproc2Lines :: Test
+testTokenTypesPreproc2Lines = TestLabel "testTokenTypesPreproc2Lines" (TestCase (
+        do
+        let contents="module Main\nwhere\n#if GHC_VERSION\\\n=612\nimport Data.Map\n#endif\nmain=undefined\n"
+        base_dir <- getCurrentDirectory
+        Right tks<-runScion $ do
+                tokenTypesArbitrary base_dir contents False
+        let expected=S.pack "[[\"K\", 1, 0, 1, 6], [\"IC\", 1, 7, 1, 11], [\"K\", 2, 0, 2, 5], [\"PP\", 3, 0, 3, 16], [\"PP\", 4, 0, 4, 4], [\"K\", 5, 0, 5, 6], [\"IC\", 5, 7, 5, 15], [\"PP\", 6, 0, 6, 6], [\"IV\", 7, 0, 7, 4], [\"S\", 7, 4, 7, 5], [\"IV\", 7, 5, 7, 14]]"
+        let actual=showJSON $ toJSON tks
+        assertEqual "unexpected content" expected actual
+        ))
+
+
+testTokenTypesLiteral :: Test
+testTokenTypesLiteral = TestLabel "testTokenTypesLiteral" (TestCase (
+        do
+        let contents="comment for literate module\n> module Main\n2nd comment\n> where\n> import Data.Map\n"
+        base_dir <- getCurrentDirectory
+        Right tks<-runScion $ do
+                tokenTypesArbitrary base_dir contents True
+        let expected=S.pack "[[\"DL\", 1, 0, 1, 27], [\"K\", 2, 2, 2, 8], [\"IC\", 2, 9, 2, 13], [\"DL\", 3, 0, 3, 11], [\"K\", 4, 2, 4, 7], [\"K\", 5, 2, 5, 8], [\"IC\", 5, 9, 5, 17]]"
+        let actual=showJSON $ toJSON tks
+        assertEqual "unexpected content" expected actual
+        ))
 
 testNoPreproc:: Test
 testNoPreproc=TestLabel "testNoPreproc" (TestCase (
