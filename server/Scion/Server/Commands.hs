@@ -392,13 +392,7 @@ instance JSON OutlineDef where
   	 Nothing -> [])
   fromJSON _ = fail "OutlineDef"
 
-instance JSON TokenDef where
-  toJSON t | (_, l0, c0, l1, c1) <- viewLoc $ td_loc t =
-    --Dic.makeObject $ 
-    --  [("name", str $ td_name t)
-    --  ,("region", JSArray (map toJSON [l0,c0,l1,c1]))]
-    JSArray ((str $ td_name t): (map toJSON [l0,c0,l1,c1]))
-  fromJSON _ = fail "TokenDef"
+
 
 cmdListSupportedLanguages :: Cmd
 cmdListSupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd

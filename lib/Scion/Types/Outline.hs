@@ -17,8 +17,10 @@ where
 
 import GHC
 import Scion.Types.Notes
-
+import qualified Scion.Types.JSONDictionary as Dic
+import Text.JSON.AttoJSON
 import Data.List ( foldl' )
+import qualified Data.ByteString.Char8 as S
 
 data OutlineDef = OutlineDef
   { od_name       :: Either Name String,
@@ -46,3 +48,11 @@ trimLocationFile =
   map (\d@OutlineDef{ od_loc = l, od_block = b} -> 
            d{ od_loc = trimFile l,
               od_block = trimFile b})
+
+instance JSON TokenDef where
+  toJSON t | (_, l0, c0, l1, c1) <- viewLoc $ td_loc t =
+    --Dic.makeObject $ 
+    --  [("name", str $ td_name t)
+    --  ,("region", JSArray (map toJSON [l0,c0,l1,c1]))]
+    JSArray ((JSString $ S.pack $ td_name t): (map toJSON [l0,c0,l1,c1]))
+  fromJSON _ = fail "TokenDef"
