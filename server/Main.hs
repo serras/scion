@@ -125,7 +125,9 @@ serve (TCPIP auto nr) = do
                    then listenOnOneOf (map PortNumber [nr..maxBound])
                    else listenOn (PortNumber nr)
   realNr <- liftIO $ socketPort sock
+  realAddr<- liftIO $ getSocketName sock
   putStrLn $ "=== Listening on port: " ++ show realNr
+  putStrLn $ "=== Listening on address: " ++ show realAddr
   hFlush stdout
   let run True = return ()
       run _ = 
