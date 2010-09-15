@@ -16,6 +16,7 @@ module Scion.Types.Outline
 where
 
 import GHC
+import Outputable
 import Scion.Types.Notes
 import qualified Scion.Types.JSONDictionary as Dic
 import Text.JSON.AttoJSON
@@ -23,11 +24,11 @@ import Data.List ( foldl' )
 import qualified Data.ByteString.Char8 as S
 
 data OutlineDef = OutlineDef
-  { od_name       :: Either Name String,
+  { od_name       :: Either SDoc String,
     od_type       :: String,
     od_loc        :: Location,
     od_block      :: Location,
-    od_parentName :: Maybe (Name,String)
+    od_parentName :: Maybe (SDoc,String)
   }
 
 data TokenDef = TokenDef {
@@ -36,7 +37,7 @@ data TokenDef = TokenDef {
     }
         deriving (Show,Eq)
 
-extractNames:: [OutlineDef] -> [Name]
+extractNames:: [OutlineDef] -> [SDoc]
 extractNames
   = foldl' (\l od -> case od_name od of
 	               Left n -> n:l
@@ -56,3 +57,4 @@ instance JSON TokenDef where
     --  ,("region", JSArray (map toJSON [l0,c0,l1,c1]))]
     JSArray ((JSString $ S.pack $ td_name t): (map toJSON [l0,c0,l1,c1]))
   fromJSON _ = fail "TokenDef"
+
