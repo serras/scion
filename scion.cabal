@@ -119,7 +119,6 @@ executable scion-server
     containers   >= 0.2 && < 0.4,
     directory    == 1.0.*,
     filepath     == 1.1.*,
-    unix         >= 2,
     ghc          >= 6.10 && < 6.13,
     ghc-paths    == 0.1.*,
     ghc-syb,
