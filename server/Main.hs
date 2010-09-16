@@ -41,13 +41,14 @@ import qualified System.Log.Handler.Syslog as HL
 import qualified Data.ByteString.Lazy.Char8 as S
 import Network ( listenOn, PortID(..) )
 import Network.Socket hiding (send, sendTo, recv, recvFrom)
+import Network.BSD
 import Network.Socket.ByteString
 import Data.List (isPrefixOf, break)
 import Data.Foldable (foldrM)
 import qualified Control.Exception as E
 import Control.Monad ( when, forever, liftM )
 import System.Console.GetOpt
-
+import System.Posix.Unistd ( usleep )
 
 log = HL.logM __FILE__
 logInfo = log HL.INFO
@@ -58,7 +59,8 @@ logError = log HL.ERROR
 -- if you're paranoid about your code Socketfile or StdInOut
 -- will be the most secure choice.. (Everyone can connect via TCP/IP at the
 -- moment)
-data ConnectionMode = TCPIP Bool PortNumber -- the Bool indicates whether to scan
+data ConnectionMode = Server Bool PortNumber -- the Bool indicates whether to scan
+                  | Client HostName PortNumber
                   | StdInOut
 #ifndef mingw32_HOST_OS
                   | Socketfile FilePath
@@ -66,18 +68,30 @@ data ConnectionMode = TCPIP Bool PortNumber -- the Bool indicates whether to sca
   deriving Show
 
 data StartupConfig = StartupConfig {
-     connectionMode :: ConnectionMode,
-     autoPort :: Bool,
-     showHelp :: Bool
-  } deriving Show
+     connectionMode :: ConnectionMode
+   , portNumber :: PortNumber
+   , connectHost :: HostName
+   , autoPort :: Bool
+   , showHelp :: Bool
+} deriving Show
+
+-- | Default port to which scion-server listens in server mode
 defaultPort = 4005
-defaultStartupConfig = StartupConfig (TCPIP False (fromInteger defaultPort)) False False
+-- | Default host to which scion-server connects in client mode
+defaultHost = "localhost"
+-- | Default start configuration is server mode
+
+defaultStartupConfig = StartupConfig (Server False (fromInteger defaultPort))
+                                     (fromInteger defaultPort)
+                                     defaultHost
+                                     False
+                                     False
 
 options :: [OptDescr (StartupConfig -> IO StartupConfig)]
 options =
      [ Option ['p']     ["port"]
-       (ReqArg (\o opts -> return $ opts { connectionMode = (TCPIP False . fromInteger) (read o) }) (show defaultPort))
-       "listen on this TCP port"
+       (ReqArg (\o opts -> return $ opts { portNumber = (fromInteger (read o)) }) (show defaultPort))
+       "listen on or connect to this TCP port"
      , Option ['a'] ["autoport"]
        (NoArg (\opts -> return $ opts { autoPort = True }))
        "scan until a free TCP port is found"
@@ -97,6 +111,12 @@ options =
           fh <- HL.fileHandler f HL.DEBUG
           HL.updateGlobalLogger "" (HL.addHandler fh)
           return opts ) "/tmp/scion-log") "log to the given file"
+     , Option ['c'] ["client"]
+       (NoArg (\opts -> return $ opts { connectionMode = (Client (connectHost opts) (portNumber opts))}))
+       "Operate scion-server in client mode."
+     , Option ['n'] ["hostname"]
+       (ReqArg (\o opts -> return $ opts { connectHost = o }) defaultHost)
+       "Host name or address to which scion-server should connect in client mode."
      ]
 
 initializeLogging = do
@@ -120,17 +140,17 @@ instance Bounded PortNumber where
     maxBound = 0xFFFF
 
 serve :: ConnectionMode -> IO ()
-serve (TCPIP auto nr) = do
+serve (Server auto nr) = do
   sock <- liftIO $ if auto
                    then listenOnOneOf (map PortNumber [nr..maxBound])
                    else listenOn (PortNumber nr)
   realNr <- liftIO $ socketPort sock
   realAddr<- liftIO $ getSocketName sock
-  putStrLn $ "=== Listening on port: " ++ show realNr
-  putStrLn $ "=== Listening on address: " ++ show realAddr
+  logInfo $ "=== Listening on port: " ++ show realNr
+  logInfo $ "=== Listening on address: " ++ show realAddr
   hFlush stdout
-  let run True = return ()
-      run _ = 
+  let run True  = return ()
+      run False = 
        E.handle (\(e::E.IOException) -> do
                     logInfo ("caught :" ++ (show e) ++ "\n\nwaiting for next client")
                     run False) $ do
@@ -139,11 +159,74 @@ serve (TCPIP auto nr) = do
          stop_server <- handleClient sock_conn
          run stop_server
   run False
+
+serve (Client host port) = 
+  let
+    maxRetries = 5
+    initialSleep = 1000000 `div` 2
+
+    -- Iterate through all of the candidate addresses and see if one of them
+    -- actually connects. If none of the connections succeeds, return Nothing
+    getSocket []           = return Nothing
+    getSocket (addr:addrs) =
+      E.bracketOnError
+          (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+          (sClose)  -- only done if there's an error
+          (\sock -> E.catch (do connect sock (addrAddress addr)
+                                return (Just sock))
+                            (\(e :: E.IOException) -> getSocket addrs))
+
+    -- The workhorse: Try to connect to the candidate addresses, and if none of
+    -- them succeed, sleep using an exponential backoff timer, and try again.
+    tryConnect addrs =
+      let
+        tryConnect' addrs retry sleep
+          | retry < maxRetries = do
+              sock <- getSocket addrs
+              case sock of
+                -- Exponential backoff
+                Nothing -> do
+                  usleep sleep
+                  tryConnect' addrs (retry + 1) (sleep * 2)
+                -- Got something...
+                (Just s) -> do
+                  a <- getSocketName s
+                  logInfo $ "client mode connected to " ++ (show a) ++ " (retries " ++ (show retry) ++ ")"
+                  return sock
+
+          | otherwise = return Nothing
+      in
+        tryConnect' addrs 0 initialSleep
+
+    -- Run the server
+    run _ True  = return ()
+    run sock False = do
+      sock_conn <- CIO.mkSocketConnection sock
+      stop_server <- handleClient sock_conn
+      run sock stop_server
+  in do
+    -- This was lifted from the Network package, because Network.connectTo returns a
+    -- Handle, not a Socket. We need a Socket.
+    proto <- getProtocolNumber "tcp"
+    let hints = defaultHints { addrFlags = [AI_ADDRCONFIG]
+                             , addrProtocol = proto
+                             , addrSocketType = Stream }
+    addrs <- getAddrInfo (Just hints) (Just host) (Just (show port))
+    logInfo $ "client mode candidate addresses: " ++ (show $ map addrAddress addrs)
+    r <- tryConnect addrs
+    case r of
+      Nothing     -> do
+        logInfo $ "Unable to connect to any candidate address"
+        return ()
+
+      (Just sock) -> run sock False
+
 serve StdInOut = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stdin LineBuffering
   _ <- handleClient (stdin, stdout)
   return ()
+
 #ifndef mingw32_HOST_OS
 serve (Socketfile file) = do
   sock <- liftIO $ listenOn (UnixSocket file)
@@ -166,7 +249,8 @@ handleClient con = do
 
 fixConfig :: StartupConfig -> StartupConfig
 fixConfig conf = case connectionMode conf of
-  TCPIP _ nr -> conf { connectionMode = TCPIP (autoPort conf) nr }
+  Server _ _ -> conf { connectionMode = Server (autoPort conf) (portNumber conf) }
+  Client _ _ -> conf { connectionMode = Client (connectHost conf) (portNumber conf) }
   otherwise -> conf
 
 main :: IO ()
