@@ -353,9 +353,10 @@ backgroundTypecheckFile fname0 = do
               return $ Left "Could not find file in module graph."
             Just modsum -> do
               (_, rslt) <- setContextForBGTC modsum
-              if compilationSucceeded rslt
-               then backgroundTypecheckFile' rslt fname
-               else return $ Right rslt
+              backgroundTypecheckFile' rslt fname
+              --if compilationSucceeded rslt
+              --  then backgroundTypecheckFile' rslt fname
+              --  else return $ Right rslt
 
    backgroundTypecheckFile' comp_rslt fname = do
       message verbose $ "Background type checking: " ++ fname
@@ -385,10 +386,12 @@ backgroundTypecheckFile fname0 = do
         do
           -- TODO: measure time and stop after a phase if it takes too long?
           parsed_mod <- parseModule modsum
-          tcd_mod <- typecheckModule parsed_mod
-          ds_mod <- desugarModule tcd_mod
-          loadModule ds_mod -- ensure it's in the HPT
-          finish_up (Just (Typechecked tcd_mod)) mempty
+          ghandle (\(e :: SourceError) -> finish_up  (Just (Parsed parsed_mod)) (srcErrorMessages e)) $
+                do
+                  tcd_mod <- typecheckModule parsed_mod
+                  ds_mod <- desugarModule tcd_mod
+                  loadModule ds_mod -- ensure it's in the HPT
+                  finish_up (Just (Typechecked tcd_mod)) mempty
 
    preprocessModule fname = do
      depanal [] True
@@ -437,10 +440,11 @@ backgroundTypecheckArbitrary fname contents = do
       
         rslt <- load LoadAllTargets
         getDefSiteDB rslt
-        if compilationSucceeded rslt
-          then backgroundTypecheckFile fname
-          else do
-                   return (Right rslt)
+        backgroundTypecheckFile fname
+        --if compilationSucceeded rslt
+        --  then backgroundTypecheckFile fname
+        --  else do
+        --           return (Right rslt)
 
 -- | Return whether the filepath refers to a file inside the current project
 --   root.  Return 'False' if there is no current project.

@@ -379,7 +379,7 @@ instance JSON OutlineDef where
   toJSON t =
     Dic.makeObject $ 
       [(Dic.name, str $ case od_name t of
-  	                Left n -> showSDocUnqual $ ppr n
+  	                Left n -> showSDocUnqual n
   	                Right s -> s)
       ,(Dic.location, toJSON $ od_loc t)
       ,(Dic.block, toJSON $ od_block t)
@@ -387,11 +387,10 @@ instance JSON OutlineDef where
       ++
       (case od_parentName t of
   	 Just (n,typ) -> 
-             [(Dic.parent, Dic.makeObject [(Dic.name, str $ showSDocUnqual $ ppr $ n)
+             [(Dic.parent, Dic.makeObject [(Dic.name, str $ showSDocUnqual $ n)
                                     ,(Dic.typ, str typ)])]
   	 Nothing -> [])
   fromJSON _ = fail "OutlineDef"
-
 
 
 cmdListSupportedLanguages :: Cmd
@@ -543,8 +542,8 @@ cmdToplevelNames=
     cmd =do
     tc_res <- gets bgTcCache
     case tc_res of
-      Just (Typechecked tcm) -> do
-          return $ map (showSDocDump . ppr) $ toplevelNames tcm
+      Just m -> do
+          return $ map showSDocDump $ toplevelNames m
       _ -> return []
 
 cmdOutline :: Cmd
@@ -555,9 +554,9 @@ cmdOutline =
     root_dir <- projectRootDir
     tc_res <- gets bgTcCache
     case tc_res of
-      Just (Typechecked tcm) -> do
+      Just m -> do
         let f = if trim then trimLocationFile else id
-        return $ f $ outline root_dir tcm 
+        return $ f $ outline root_dir m 
       _ -> return []
 
 cmdTokens :: Cmd

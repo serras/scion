@@ -99,42 +99,42 @@ familyDecls rn_src =
     [ t | t <- hs_tyclds (renamedSourceGroup rn_src)
         , isFamilyDecl (unLoc t) ]
 
-toplevelNames :: TypecheckedMod m => m -> [Name]
+toplevelNames :: BgTcCache -> [SDoc]
 toplevelNames m  = extractNames (outline "" m)
 
 ------------------------------------------------------------------------------
 
-typeToName :: [(TyClDecl Name -> Bool, [Char])]
+typeToName :: Outputable o => [(TyClDecl o -> Bool, [Char])]
 typeToName = [(isFamilyDecl, "family")
              ,(isClassDecl,  "class")
              ,(isDataDecl,   "data")
              ,(isSynDecl,    "syn")
              ,(const True,   "type")]
 
-mkConDeclOutlineDef :: FilePath -> SrcSpan -> Name -> Located (ConDecl Name) -> [OutlineDef]
+mkConDeclOutlineDef :: Outputable o => FilePath -> SrcSpan -> o -> Located (ConDecl o) -> [OutlineDef]
 mkConDeclOutlineDef  base_dir sp n (L _ c@(ConDecl { con_name = lname})) =
   let
     L sp2 n2 = lname
-    o1 = OutlineDef (Left n2) "constructor"
+    o1 = OutlineDef (Left $ ppr n2) "constructor"
                     (ghcSpanToLocation base_dir sp2) (ghcSpanToLocation base_dir sp)
-                    (Just (n,"data"))
+                    (Just (ppr n,"data"))
 
     os = case con_details c of
            RecCon flds -> 
-             [ OutlineDef (Left n3) "field"
+             [ OutlineDef (Left $ ppr $ n3) "field"
                           (ghcSpanToLocation base_dir sp3)
                           (ghcSpanToLocation base_dir sp)
-                          (Just (n2,"constructor"))
+                          (Just (ppr n2,"constructor"))
               | L sp3 n3 <- map cd_fld_name flds ]
            _ -> []
   in
     (o1:os)
 
-mkOutlineDef :: FilePath -> Located (TyClDecl Name) -> [OutlineDef]
+mkOutlineDef :: (Eq o, Outputable o) => FilePath -> Located (TyClDecl o) -> [OutlineDef]
 mkOutlineDef base_dir (L sp (TyData {tcdLName = tc_name, tcdCons = cons})) =
   let
     L sp2 n = tc_name
-    o1 = OutlineDef (Left n) "data" 
+    o1 = OutlineDef (Left $ ppr n) "data" 
                     (ghcSpanToLocation base_dir sp2)
                     (ghcSpanToLocation base_dir sp)
                     Nothing
@@ -144,14 +144,14 @@ mkOutlineDef base_dir (L sp (TyData {tcdLName = tc_name, tcdCons = cons})) =
 mkOutlineDef base_dir (L sp (ClassDecl {tcdLName = cls_name, tcdSigs = sigs})) =
   let
     L sp2 n = cls_name
-    o1 = OutlineDef (Left n) "class"
+    o1 = OutlineDef (Left $ ppr n) "class"
                     (ghcSpanToLocation base_dir sp2)
                     (ghcSpanToLocation base_dir sp)
                     Nothing
-    os = [OutlineDef (Left n2) "function" 
+    os = [OutlineDef (Left $ ppr n2) "function" 
                      (ghcSpanToLocation base_dir sp3)
                      (ghcSpanToLocation base_dir sp)
-                     (Just (n,"class"))
+                     (Just (ppr n,"class"))
           | L _ (TypeSig (L sp3 n2) _) <- sigs]
   in
     (o1:os)
@@ -165,7 +165,7 @@ mkOutlineDef base_dir (L sp t) =
                      else tn)
                 "" typeToName
   in
-    [OutlineDef (Left n) tN
+    [OutlineDef (Right $ showSDocUnqual $ ppr n) tN
                 (ghcSpanToLocation base_dir sp2)
                 (ghcSpanToLocation base_dir sp)
                 Nothing
@@ -176,54 +176,64 @@ valBinds base_dir grp =
     let ValBindsOut bind_grps _sigs = hs_valds grp
     in [ n | (_, binds0) <- bind_grps
            , L sp bind <- bagToList binds0
-           , n <- case bind of
-                    FunBind {fun_id = L sp2 n} ->
-                      [OutlineDef (Left n) "function"
+           , n <- mkValBind base_dir sp bind 
+       ]
+
+
+mkValBind :: (Outputable o, Data o) =>
+                                     FilePath -> SrcSpan -> HsBindLR o t -> [OutlineDef]
+mkValBind base_dir sp (FunBind {fun_id = L sp2 n}) =
+                      [OutlineDef (Left $ ppr n) "function"
                                   (ghcSpanToLocation base_dir sp2)
                                   (ghcSpanToLocation base_dir sp)
                                   Nothing]
-                    PatBind {pat_lhs = L sp2 p} ->
-                      [OutlineDef (Left n) "pattern"
+mkValBind base_dir sp (PatBind {pat_lhs = L sp2 p}) =
+                      [OutlineDef (Left $ ppr n) "pattern"
                                   (ghcSpanToLocation base_dir sp2)
                                   (ghcSpanToLocation base_dir sp)
                                   Nothing
                        | n <- pat_names p]
-                    _ -> []
-       ]
-  where
-    -- return names bound by pattern
-    pat_names :: Pat Name -> [Name]
-    pat_names pat = 
-        [ n | Just n <- map pat_bind_name 
-                          (trace (showData Renamer 2 (pat, universe pat)) (universe pat)) ]
+    where
+            -- return names bound by pattern
+            pat_names :: (Outputable o, Data o) => Pat o -> [o]
+            pat_names pat = 
+                [ n | Just n <- map pat_bind_name 
+                                  (trace (showData Renamer 2 (pat, universe pat)) (universe pat)) ]
+            pat_bind_name :: (Outputable o, Data o) => Pat o -> Maybe o
+            pat_bind_name (VarPat id) = Just id
+            pat_bind_name (AsPat (L _ id) _) = Just id
+            pat_bind_name _ = Nothing
+mkValBind _ _ _ = []
 
-    pat_bind_name :: Pat Name -> Maybe Name
-    pat_bind_name (VarPat id) = Just id
-    pat_bind_name (AsPat (L _ id) _) = Just id
-    pat_bind_name _ = Nothing
-
-instBinds :: FilePath -> HsGroup Name -> [OutlineDef]
-instBinds base_dir grp = 
-  [OutlineDef (Right $ pretty n) "instance"
+mkInstDef :: OutputableBndr o => FilePath -> Located(InstDecl o) -> OutlineDef
+mkInstDef base_dir (L sp (InstDecl inst_ty _ _ _))=OutlineDef (Right $ showSDocUnqual $ ppr inst_ty) "instance"
               (ghcSpanToLocation base_dir sp)
               (ghcSpanToLocation base_dir sp) Nothing
-   | L sp n <- hs_instds grp]
- where
-   pretty (InstDecl inst_ty _ _ _) = showSDocUnqual $ ppr inst_ty
+              
+
+instBinds :: FilePath -> HsGroup Name -> [OutlineDef]
+instBinds base_dir grp = map (mkInstDef base_dir) (hs_instds grp)
 
 -- | Generate outline view for the given module.
-outline :: TypecheckedMod m => 
-           FilePath
+outline ::FilePath
            -- ^ The base directory for relative source locations,
            -- typically the project root.
-        -> m
+        -> BgTcCache
         -> [OutlineDef]
-outline base_dir m
+outline base_dir (Typechecked m)
   | Just grp <- renamedSourceGroup `fmap` renamedSource m =
      concatMap (mkOutlineDef base_dir) (hs_tyclds grp)
        ++ valBinds base_dir grp
        ++ instBinds base_dir grp
+outline base_dir (Parsed m) = concatMap (mkOutlineDef' base_dir) (hsmodDecls $ unLoc $ pm_parsed_source m)
 outline _ _ = []
+
+mkOutlineDef' :: FilePath -> LHsDecl RdrName  -> [OutlineDef]
+mkOutlineDef' base_dir (L sp t) | TyClD d <-t = mkOutlineDef base_dir (L sp d)
+mkOutlineDef' base_dir (L sp t) | InstD d <-t = [mkInstDef base_dir (L sp d)]
+mkOutlineDef' base_dir (L sp t) | ValD d <-t = mkValBind base_dir sp d
+mkOutlineDef' _ _=[]
+
 
 {- FIXME: unused
 tokens :: FilePath -> Module -> ScionM ([TokenDef])
