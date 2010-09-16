@@ -40,6 +40,7 @@ import Var ( varType )
 import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
+import GHC.SYB.Utils()
 
 import Data.Data
 import Data.Generics.Biplate
@@ -47,7 +48,6 @@ import qualified Data.Generics.Str as U
 import Data.List (sortBy,isPrefixOf)
 import Data.Ord (comparing)
 import Data.Maybe
-import GHC.SYB.Utils
 import Data.List ( foldl' )
 
 #if __GLASGOW_HASKELL__ >= 610
@@ -187,7 +187,7 @@ mkValBind base_dir sp (FunBind {fun_id = L sp2 n}) =
                                   (ghcSpanToLocation base_dir sp2)
                                   (ghcSpanToLocation base_dir sp)
                                   Nothing]
-mkValBind base_dir sp (PatBind {pat_lhs = L sp2 p}) =
+mkValBind base_dir sp (PatBind {pat_lhs = p@(L sp2 _)}) =
                       [OutlineDef (Left $ ppr n) "pattern"
                                   (ghcSpanToLocation base_dir sp2)
                                   (ghcSpanToLocation base_dir sp)
@@ -195,14 +195,15 @@ mkValBind base_dir sp (PatBind {pat_lhs = L sp2 p}) =
                        | n <- pat_names p]
     where
             -- return names bound by pattern
-            pat_names :: (Outputable o, Data o) => Pat o -> [o]
-            pat_names pat = 
-                [ n | Just n <- map pat_bind_name 
-                                  (trace (showData Renamer 2 (pat, universe pat)) (universe pat)) ]
-            pat_bind_name :: (Outputable o, Data o) => Pat o -> Maybe o
-            pat_bind_name (VarPat id) = Just id
-            pat_bind_name (AsPat (L _ id) _) = Just id
-            pat_bind_name _ = Nothing
+            pat_names :: (Outputable o, Data o) => LPat o -> [o]
+            pat_names lpat = collectPatBinders lpat
+--            pat_names pat = 
+--                [ n | Just n <- map pat_bind_name 
+--                                  (trace (showData Renamer 2 (pat, universe pat)) (universe pat)) ]
+--            pat_bind_name :: (Outputable o, Data o) => Pat o -> Maybe o
+--            pat_bind_name (VarPat id) = Just id
+--           pat_bind_name (AsPat (L _ id) _) = Just id
+--            pat_bind_name _ = Nothing
 mkValBind _ _ _ = []
 
 mkInstDef :: OutputableBndr o => FilePath -> Located(InstDecl o) -> OutlineDef

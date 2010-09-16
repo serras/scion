@@ -15,10 +15,9 @@ module Scion.Types.Outline
   )
 where
 
-import GHC
+
 import Outputable
 import Scion.Types.Notes
-import qualified Scion.Types.JSONDictionary as Dic
 import Text.JSON.AttoJSON
 import Data.List ( foldl' )
 import qualified Data.ByteString.Char8 as S
