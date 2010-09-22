@@ -597,10 +597,10 @@ cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
 
 cmdLoad :: Cmd
 cmdLoad = Cmd "load" $ reqArg "component" <&>
-    optArg "output" defaultLoadOptions $ cmd
+    optArg "options" defaultLoadOptions $ cmd
   where
-    cmd comp output= do
-      loadComponent' comp output
+    cmd comp options= do
+      loadComponent' comp options
 
 cmdSetVerbosity :: Cmd
 cmdSetVerbosity = 
