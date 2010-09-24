@@ -47,8 +47,8 @@ import Data.List (isPrefixOf, break)
 import Data.Foldable (foldrM)
 import qualified Control.Exception as E
 import Control.Monad ( when, forever, liftM )
+import Control.Concurrent (threadDelay)
 import System.Console.GetOpt
-import System.Posix.Unistd ( usleep )
 
 log = HL.logM __FILE__
 logInfo = log HL.INFO
@@ -186,7 +186,7 @@ serve (Client host port) =
               case sock of
                 -- Exponential backoff
                 Nothing -> do
-                  usleep sleep
+                  threadDelay sleep
                   tryConnect' addrs (retry + 1) (sleep * 2)
                 -- Got something...
                 (Just s) -> do

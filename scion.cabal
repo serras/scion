@@ -103,7 +103,7 @@ library
   if impl(ghc == 6.12.*)
     cpp-options:   -DGHC_VERSION=612
 
-  ghc-options:  -Wall
+  ghc-options:  -Wall -fno-warn-unused-do-bind
   other-modules: Scion.Types.JSONDictionary
 
 executable scion-server
@@ -119,7 +119,6 @@ executable scion-server
     containers   >= 0.2 && < 0.4,
     directory    == 1.0.*,
     filepath     == 1.1.*,
-    unix         >= 2,
     ghc          >= 6.10 && < 6.13,
     ghc-paths    == 0.1.*,
     ghc-syb,
@@ -151,7 +150,7 @@ executable scion-server
 
   other-modules: Scion, Scion.Cabal, Scion.Inspect, Scion.Inspect.DefinitionSite, Scion.Session, Scion.Types, Scion.Types.Notes, Scion.Types.Outline, Scion.Utils, Scion.Ghc, Scion.Server.Commands, Scion.Server.ConnectionIO, Scion.Server.Generic, Scion.Server.Protocol, Scion.Packages, Scion.Types.JSONDictionary
                  
-  ghc-options: -Wall
+  ghc-options: -Wall -fno-warn-unused-do-bind
   extensions:      CPP, PatternGuards, DeriveDataTypeable, OverlappingInstances, IncoherentInstances, FlexibleInstances, UndecidableInstances, TypeSynonymInstances
 
   if flag(testing)

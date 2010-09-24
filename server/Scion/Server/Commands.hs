@@ -41,7 +41,6 @@ import PprTyThing ( pprTypeForUser )
 import qualified Outputable as O ( (<+>) )
 
 import Control.Applicative
-import Control.Monad
 import Data.List ( nub )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )

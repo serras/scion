@@ -30,8 +30,6 @@ import Text.JSON.AttoJSON()
 -- import qualified Data.ByteString.Char8() as S
 -- import Data.Foldable (foldlM)
 
-import System.FilePath
-
 --import System.Directory (doesFileExist)
 
 import System.IO (openFile, hPutStrLn, hClose, IOMode(..))

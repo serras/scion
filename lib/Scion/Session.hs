@@ -37,7 +37,6 @@ import System.Directory ( getCurrentDirectory, canonicalizePath )
 import System.FilePath  ( isRelative, makeRelative, normalise, takeExtension )
 import System.Time      ( getClockTime )
 
-import Control.Exception
 ------------------------------------------------------------------------------
 
 -- TODO: have some kind of project description file, that allows us to
@@ -65,7 +64,7 @@ initialScionDynFlags dflags =
       -- byte code compiler.
 #ifdef RECOMPILE_BUG_FIXED
       hscTarget = HscNothing  -- by default, don't modify anything
-    , ghcLink   = NoLink      -- just to be sure
+    , ghcLink   = LinkInMemory     -- changed by Nominolo
 #else
       hscTarget = HscInterpreted
     , ghcLink   = LinkInMemory

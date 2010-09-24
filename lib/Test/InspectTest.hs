@@ -3,7 +3,6 @@ module Test.InspectTest where
 
 import Scion
 import Scion.Inspect
-import Scion.Types
 import Scion.Types.Notes
 import Scion.Types.Outline
 

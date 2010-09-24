@@ -23,7 +23,7 @@ import qualified Scion.Types.JSONDictionary as Dic
 
 import GHC
 import HscTypes
-import MonadUtils ( liftIO, MonadIO )
+import MonadUtils ( MonadIO )
 import Exception
 
 import Text.JSON.AttoJSON
@@ -40,7 +40,6 @@ import Data.IORef
 import Data.Monoid
 import Data.Time.Clock  ( NominalDiffTime )
 import Data.Typeable
-import Control.Exception
 import Control.Applicative
 
 ------------------------------------------------------------------------------
