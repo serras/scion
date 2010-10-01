@@ -102,8 +102,9 @@ library
 
   if impl(ghc == 6.12.*)
     cpp-options:   -DGHC_VERSION=612
+    ghc-options:  -fno-warn-unused-do-bind
 
-  ghc-options:  -Wall -fno-warn-unused-do-bind
+  ghc-options:  -Wall
   other-modules: Scion.Types.JSONDictionary
 
 executable scion-server
