@@ -24,7 +24,7 @@ import GHC hiding ( load, TyCon )
 import GHC.Paths  ( ghc, ghc_pkg )
 import Data.Typeable ()
 
-import Text.JSON.AttoJSON
+import Text.JSON.AttoJSON (JSON,JSValue(..),fromJSON,toJSON)
 import qualified Data.ByteString.Char8 as S
 import qualified Scion.Types.JSONDictionary as Dic
 

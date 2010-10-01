@@ -44,7 +44,7 @@ import Control.Applicative
 import Data.List ( nub )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )
-import Text.JSON.AttoJSON
+import Text.JSON.AttoJSON (JSON,JSValue(..),fromJSON,toJSON)
 import qualified Data.ByteString.Char8 as S
 import qualified Data.Map as M
 import qualified Data.MultiSet as MS
@@ -328,10 +328,10 @@ instance (JSON a, JSON b)=> JSON (Either a b) where
         toJSON (Right a)=Dic.makeObject [(Dic.rightC,toJSON a)]
         fromJSON _ = fail "Either"
 
-instance (JSON a)=>JSON (Maybe a) where
-        toJSON (Nothing)=Dic.makeObject [(Dic.nothingC,JSNull)]
-        toJSON (Just a)=Dic.makeObject [(Dic.justC,toJSON a)]
-        fromJSON _ = fail "Maybe"
+--instance (JSON a)=>JSON (Maybe a) where
+--        toJSON (Nothing)=Dic.makeObject [(Dic.nothingC,JSNull)]
+--        toJSON (Just a)=Dic.makeObject [(Dic.justC,toJSON a)]
+--        fromJSON _ = fail "Maybe"
 
 str :: String -> JSValue
 str = JSString . S.pack
