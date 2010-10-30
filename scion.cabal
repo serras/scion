@@ -50,7 +50,6 @@ library
     ghc-paths    == 0.1.*,
     ghc-syb,
     ghc-syb-utils,
-    hslogger     == 1.0.*,
     AttoJson     >= 0.5.2,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
@@ -62,10 +61,14 @@ library
     derive
 
   if flag(cabal_1_8)
-    build-depends:  Cabal >= 1.8
+    build-depends:
+      Cabal >= 1.8,
+      hslogger     == 1.1.*
     cpp-options:    -DCABAL_VERSION=108
   else
-    build-depends:  Cabal == 1.6.*
+    build-depends:
+      Cabal == 1.6.*,
+      hslogger     == 1.0.*
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
@@ -102,8 +105,9 @@ library
 
   if impl(ghc == 6.12.*)
     cpp-options:   -DGHC_VERSION=612
+    ghc-options:  -fno-warn-unused-do-bind
 
-  ghc-options:  -Wall -fno-warn-unused-do-bind
+  ghc-options:  -Wall
   other-modules: Scion.Types.JSONDictionary
 
 executable scion-server
@@ -123,7 +127,6 @@ executable scion-server
     ghc-paths    == 0.1.*,
     ghc-syb,
     ghc-syb-utils,
-    hslogger     == 1.0.*,
     AttoJson     >= 0.5.2,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
@@ -134,10 +137,14 @@ executable scion-server
     derive
 
   if flag(cabal_1_8)
-    build-depends:  Cabal >= 1.8
+    build-depends:
+      Cabal >= 1.8,
+      hslogger     == 1.1.*
     cpp-options:    -DCABAL_VERSION=108
   else
-    build-depends:  Cabal == 1.6.*
+    build-depends:
+      Cabal == 1.6.*,
+      hslogger     == 1.0.*
     cpp-options:    -DCABAL_VERSION=106
   
   if flag(server)
@@ -184,7 +191,6 @@ executable scion-test
     ghc-paths    == 0.1.*,
     ghc-syb,
     ghc-syb-utils,
-    hslogger     == 1.0.*,
     AttoJson     >= 0.5.2,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
@@ -198,10 +204,13 @@ executable scion-test
     HUnit
 
   if flag(cabal_1_8)
-    build-depends:  Cabal >= 1.8
+    build-depends:
+      Cabal >= 1.8,
+      hslogger     == 1.1.*
     cpp-options:    -DCABAL_VERSION=108
   else
-    build-depends:  Cabal == 1.6.*
+    build-depends:  Cabal == 1.6.*,
+      hslogger     == 1.0.*
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
