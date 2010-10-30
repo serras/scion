@@ -38,7 +38,7 @@ import DynFlags ( supportedLanguages, allFlags )
 import Exception
 import FastString
 import PprTyThing ( pprTypeForUser )
-import qualified Outputable as O ( (<+>) )
+import qualified Outputable as O ( (<+>),alwaysQualify )
 
 import Control.Applicative
 import Data.List ( nub )
@@ -506,9 +506,9 @@ cmdAddCmdLineFlag =
 cmdThingAtPoint :: Cmd
 cmdThingAtPoint =
     Cmd "thing-at-point" $
-      reqArg "file" <&> reqArg "line" <&> reqArg "column" $ cmd
+      reqArg "file" <&> reqArg "line" <&> reqArg "column" <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
   where
-    cmd fname line col = do
+    cmd fname line col qual typed= do
       let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col
       tc_res <- gets bgTcCache
       -- TODO: don't return something of type @Maybe X@.  The default
@@ -521,17 +521,22 @@ cmdThingAtPoint =
             let in_range = overlaps loc
             let r = findHsThing in_range src
             --return (Just (showSDoc (ppr $ S.toList r)))
-            unqual <- unqualifiedForModule tcm
-            case pathToDeepest r of
-              Nothing -> return (Just "no info")
+            unqual <- if qual
+                then return $ O.alwaysQualify
+                else unqualifiedForModule tcm
+            return $ case pathToDeepest r of
+              Nothing -> (Just "no info")
               Just (x,xs) ->
-                --return $ Just (showSDoc (ppr x O.$$ ppr xs))
-                case typeOf (x,xs) of
-                  Just t ->
-                      return $ Just $ showSDocForUser unqual
-                        (prettyResult x O.<+> dcolon O.<+> 
-                          pprTypeForUser True t)
-                  _ -> return (Just "No info") --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
+                if typed
+                        then
+                                --return $ Just (showSDoc (ppr x O.$$ ppr xs))
+                                case typeOf (x,xs) of
+                                  Just t ->
+                                      Just $ showSDocForUser unqual
+                                        (prettyResult x O.<+> dcolon O.<+> 
+                                          pprTypeForUser True t)
+                                  _ -> Just $ showSDocForUser unqual (prettyResult x) --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
+                        else Just $ showSDocForUser unqual (prettyResult x)
         _ -> return Nothing
 
 cmdToplevelNames :: Cmd
@@ -629,9 +634,17 @@ cmdNameDefinitions =
     Cmd "name-definitions" $ reqArg' "name" S.unpack $ cmd
   where cmd nm = do
           db <- gets defSiteDB
-          let locs = map fst $ lookupDefSite db nm
-          return locs
-
+          let nms=comps nm 
+          return $ map fst 
+                $ filter (\(_,b)->nm == showSDocForUser alwaysQualify (ppr $ getName b)) 
+                $ lookupDefSite db (last nms)
+        comps                   :: String -> [String]
+        comps s                 =  case dropWhile ('.'==) s of
+                                "" -> []
+                                s' -> w : comps s''
+                                      where (w, s'') =
+                                             break ('.'==) s'
+                                             
 cmdIdentify :: Cmd
 cmdIdentify =
     Cmd "client-identify" $ reqArg' "name" S.unpack $ cmd
