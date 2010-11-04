@@ -14,7 +14,7 @@
 -- Functionality to inspect Haskell programs.
 --
 module Scion.Inspect 
-  ( typeOfResult, prettyResult
+  ( typeOfResult, prettyResult, haddockType
   , typeDecls, classDecls, familyDecls
   , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
   , module Scion.Inspect.Find
@@ -37,6 +37,7 @@ import FastString
 import Lexer
 import Bag
 import Var ( varType )
+import qualified Var( varName ) 
 import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
@@ -78,6 +79,21 @@ prettyResult (FoundName n) = ppr n
 prettyResult (FoundCon _ c) = ppr c
 prettyResult r = ppr r
 
+haddockType  :: SearchResult Id -> String
+haddockType (FoundName n)
+        | isValOcc (nameOccName n)="v"
+        | otherwise= "t"
+haddockType (FoundId i)
+        | isValOcc (nameOccName (Var.varName i))="v"
+        | otherwise= "t"
+haddockType _="t"
+
+-- Haddock: Haddock.Backend.Xhtml.Utils.spliceURL                    
+--                    (name, kind) =
+--    case maybe_name of
+--      Nothing             -> ("","")
+--      Just n | isValOcc (nameOccName n) -> (escapeStr (getOccString n), "v")
+--             | otherwise -> (escapeStr (getOccString n), "t")  
 ------------------------------------------------------------------------------
 
 typeDecls :: TypecheckedMod m => m -> [LTyClDecl Name]
