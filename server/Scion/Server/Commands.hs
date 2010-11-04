@@ -38,7 +38,7 @@ import DynFlags ( supportedLanguages, allFlags )
 import Exception
 import FastString
 import PprTyThing ( pprTypeForUser )
-import qualified Outputable as O ( (<+>),alwaysQualify )
+import qualified Outputable as O ( (<+>),alwaysQualify,text )
 
 import Control.Applicative
 import Data.List ( nub )
@@ -536,8 +536,17 @@ cmdThingAtPoint =
                                         (prettyResult x O.<+> dcolon O.<+> 
                                           pprTypeForUser True t)
                                   _ -> Just $ showSDocForUser unqual (prettyResult x) --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
-                        else Just $ showSDocForUser unqual (prettyResult x)
+                        else Just $ showSDocForUser unqual ((prettyResult x) O.<+> (O.text $ haddockType x))
         _ -> return Nothing
+
+
+-- Haddock: Haddock.Backend.Xhtml.Utils.spliceURL                    
+--                    (name, kind) =
+--    case maybe_name of
+--      Nothing             -> ("","")
+--      Just n | isValOcc (nameOccName n) -> (escapeStr (getOccString n), "v")
+--             | otherwise -> (escapeStr (getOccString n), "t")  
+                    
 
 cmdToplevelNames :: Cmd
 cmdToplevelNames=
@@ -644,6 +653,8 @@ cmdNameDefinitions =
                                 s' -> w : comps s''
                                       where (w, s'') =
                                              break ('.'==) s'
+                    
+
                                              
 cmdIdentify :: Cmd
 cmdIdentify =

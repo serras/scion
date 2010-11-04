@@ -93,7 +93,8 @@ data CabalPackage=CabalPackage {
         cp_name::String,
         cp_version::String,
         cp_exposed::Bool,
-        cp_dependent::[CabalComponent]
+        cp_dependent::[CabalComponent],
+        cp_exposedModules::[String]
         }
    deriving (Eq, Show)
 
@@ -320,17 +321,18 @@ dependencies cabal_file gpd pkgs=let
                 getDep :: [CabalComponent] -> [(FilePath,InstalledPackageInfo)] -> [Dependency]-> [(FilePath,CabalPackage)] -> [(FilePath,CabalPackage)]
                 getDep _ [] _ acc= acc
 #if CABAL_VERSION == 106
-                getDep allC ((fp,InstalledPackageInfo{package=i,exposed=e}):xs) deps acc= let
+                getDep allC ((fp,InstalledPackageInfo{package=i,exposed=e,exposedModules=ems}):xs) deps acc= let
 #else
-                getDep allC ((fp,InstalledPackageInfo{sourcePackageId=i,exposed=e}):xs) deps acc= let
+                getDep allC ((fp,InstalledPackageInfo{sourcePackageId=i,exposed=e,exposedModules=ems}):xs) deps acc= let
 #endif
                         (ds,deps2)=partition (\(Dependency n v)->((pkgName i)==n) && withinRange (pkgVersion i) v) deps -- find if version is referenced, remove the referencing component so that it doesn't match an older version
                         cps=if null ds then [] else allC
-                        in getDep allC xs deps2 ((fp,CabalPackage (display $ pkgName i) (display $ pkgVersion i) e cps): acc) -- build CabalPackage structure
+                        mns=map display ems
+                        in getDep allC xs deps2 ((fp,CabalPackage (display $ pkgName i) (display $ pkgVersion i) e cps mns): acc) -- build CabalPackage structure
                 
                 --DM.map (sortBy (flip (compare `on` (pkgVersion . sourcePackageId . snd)))) $ DM.fromListWith (++) (map (\i->((display $ pkgName $ sourcePackageId i),[i]) ) ipis) --concatenates all version and sort them, most recent first
         
-        
+
 
 cabalParseArbitrary :: String -> ScionM (PD.ParseResult PD.GenericPackageDescription)
 cabalParseArbitrary cabal_contents = do  
@@ -472,9 +474,10 @@ instance JSON CabalPackage where
                 Just (JSString v) <- Dic.lookupKey obj Dic.version=do
                         JSBool e <- Dic.lookupKey obj Dic.exposed
                         ds <- fromJSON =<< Dic.lookupKey obj Dic.dependent
-                        return $ CabalPackage (S.unpack n) (S.unpack v) e ds
+                        mns <- fromJSON =<< Dic.lookupKey obj Dic.modules
+                        return $ CabalPackage (S.unpack n) (S.unpack v) e ds mns
         fromJSON _ = fail "CabalPackage"
-        toJSON (CabalPackage n v e ds)=Dic.makeObject [(Dic.name,JSString (S.pack n)),(Dic.version,JSString (S.pack v)),(Dic.exposed,JSBool e),(Dic.dependent,toJSON ds)]
+        toJSON (CabalPackage n v e ds mns)=Dic.makeObject [(Dic.name,JSString (S.pack n)),(Dic.version,JSString (S.pack v)),(Dic.exposed,JSBool e),(Dic.dependent,toJSON ds),(Dic.modules,toJSON mns)]
 
 instance (Data a) => JSON (PD.ParseResult a) where
         fromJSON _= undefined
