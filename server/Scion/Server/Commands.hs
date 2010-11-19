@@ -1,5 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables, CPP, PatternGuards, 
-             ExistentialQuantification #-} -- for 'Cmd'
+{-# LANGUAGE ScopedTypeVariables, CPP, PatternGuards, FlexibleContexts,
+             ExistentialQuantification  #-} -- for 'Cmd'
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- |
 -- Module      : Scion.Server.Commands
@@ -38,7 +38,7 @@ import DynFlags ( supportedLanguages, allFlags )
 import Exception
 import FastString
 import PprTyThing ( pprTypeForUser )
-import qualified Outputable as O ( (<+>),alwaysQualify,text )
+import qualified Outputable as O ( (<+>),alwaysQualify,neverQualify,text )
 
 import Control.Applicative
 import Data.List ( nub )
@@ -511,43 +511,45 @@ cmdThingAtPoint =
     cmd fname line col qual typed= do
       let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col
       tc_res <- gets bgTcCache
-      -- TODO: don't return something of type @Maybe X@.  The default
-      -- serialisation sucks.
       case tc_res of
         Just (Typechecked tcm) -> do
-            --let Just (src, _, _, _, _) = renamedSource tcm
-            let src = typecheckedSource tcm
-            --let in_range = const True
+             let f=(if typed then (doThingAtPointTyped $ typecheckedSource tcm) else (doThingAtPointUntyped $ renamedSource tcm))
+             --tap<- doThingAtPoint loc qual typed tcm (if typed then (typecheckedSource tcm) else (renamedSource tcm))
+             tap<-f loc qual tcm
+                --(if typed then (doThingAtPointTyped $ typecheckedSource tcm) 
+               -- else doThingAtPointTyped (renamedSource tcm) loc qual tcm
+             return $ Just tap
+        _ -> return Nothing
+    doThingAtPointTyped :: Search Id a => a ->  SrcSpan -> Bool -> TypecheckedModule -> ScionM String
+    doThingAtPointTyped src loc qual tcm=do
             let in_range = overlaps loc
             let r = findHsThing in_range src
-            --return (Just (showSDoc (ppr $ S.toList r)))
             unqual <- if qual
                 then return $ O.alwaysQualify
                 else unqualifiedForModule tcm
             return $ case pathToDeepest r of
-              Nothing -> (Just "no info")
+              Nothing -> "no info"
               Just (x,xs) ->
-                if typed
-                        then
-                                --return $ Just (showSDoc (ppr x O.$$ ppr xs))
-                                case typeOf (x,xs) of
-                                  Just t ->
-                                      Just $ showSDocForUser unqual
-                                        (prettyResult x O.<+> dcolon O.<+> 
-                                          pprTypeForUser True t)
-                                  _ -> Just $ showSDocForUser unqual (prettyResult x) --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
-                        else Just $ showSDocForUser unqual ((prettyResult x) O.<+> (O.text $ haddockType x))
-        _ -> return Nothing
-
-
--- Haddock: Haddock.Backend.Xhtml.Utils.spliceURL                    
---                    (name, kind) =
---    case maybe_name of
---      Nothing             -> ("","")
---      Just n | isValOcc (nameOccName n) -> (escapeStr (getOccString n), "v")
---             | otherwise -> (escapeStr (getOccString n), "t")  
-                    
-
+                case typeOf (x,xs) of
+                  Just t ->
+                      showSDocForUser unqual
+                        (prettyResult x O.<+> dcolon O.<+> 
+                          pprTypeForUser True t)
+                  _ -> showSDocForUser unqual (prettyResult x) --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
+    doThingAtPointUntyped :: (Search id a, OutputableBndr id) => a -> SrcSpan -> Bool -> TypecheckedModule  -> ScionM String
+    doThingAtPointUntyped src loc qual tcm =do
+            let in_range = overlaps loc
+            let r = findHsThing in_range src
+            unqual <- if qual
+                then return $ O.neverQualify
+                else unqualifiedForModule tcm
+            return $ case pathToDeepest r of
+              Nothing -> "no info"
+              Just (x,_) ->
+                if qual
+                        then showSDocForUser unqual ((qualifiedResult x) O.<+> (O.text $ haddockType x))
+                        else showSDocForUser unqual ((prettyResult x) O.<+> (O.text $ haddockType x))         
+                                
 cmdToplevelNames :: Cmd
 cmdToplevelNames=
      Cmd "top-level-names" $ noArgs $ cmd

@@ -3,19 +3,25 @@ module Test.InspectTest where
 
 import Scion
 import Scion.Inspect
+import Scion.Types
 import Scion.Types.Notes
 import Scion.Types.Outline
+import Scion.Session
 
 import Text.JSON.AttoJSON
+import FastString
+import SrcLoc
+import Scion.Ghc hiding ( (<+>) )
 
 import System.Directory
 import System.FilePath
 import qualified Data.ByteString.Char8 as S
 import Test.HUnit
+import qualified Outputable as O ( (<+>),alwaysQualify,neverQualify,text )
 
 inspectTests :: Test
 inspectTests=TestList [testTokenTypesSimple,testTokenTypesPreproc,testTokenTypesPreproc2Lines,testTokenTypesLiteral,
-        testNoPreproc,testPreproc,testPreproc2Lines,testLiterate]
+        testNoPreproc,testPreproc,testPreproc2Lines,testLiterate,testResolveFunctionWithTypeClass,testResolveFunctionWithoutTypeClass]
 
 
 testTokenTypesSimple :: Test
@@ -127,3 +133,39 @@ perf = do
         case r of 
                 Left n -> putStrLn (show n)
                 Right tts-> putStrLn (show $ length $ tts)
+
+testResolveFunctionWithTypeClass :: Test
+testResolveFunctionWithTypeClass  = TestLabel "testResolveFunctionWithTypeClass" (TestCase (do
+        r<-functionAtLine 12
+        assertEqual "" "TestR.f2 v" r
+        )) 
+        
+testResolveFunctionWithoutTypeClass :: Test
+testResolveFunctionWithoutTypeClass  = TestLabel "testResolveFunctionWithoutTypeClass" (TestCase (do
+        r<-functionAtLine 11
+        assertEqual "" "TestR.f1 v" r
+        ))         
+        
+functionAtLine :: Int -> IO (String)
+functionAtLine line=do
+        base_dir <- getCurrentDirectory
+        let file= base_dir </> "tests" </> "TestR.hs"
+        r<-runScion $ do
+                loadComponent' (Component $ FileComp file) (LoadOptions False False)
+                backgroundTypecheckFile file
+                let loc = srcLocSpan $ mkSrcLoc (fsLit file) line 13
+                tc_res <- gets bgTcCache
+                let s= showSDocForUser O.neverQualify  --showSDocDebug
+                l<-case tc_res of
+                        Just (Typechecked tcm) -> do
+                            let psrc= renamedSource tcm
+                            let in_range = overlaps loc
+                            let r = findHsThing in_range psrc
+                            return $ case pathToDeepest r of
+                              Nothing -> ""
+                              Just (x,l1) -> (s  $ ((qualifiedResult x)O.<+> (O.text $ haddockType x)))   -- ++"->"++ (concat $ map (("\n\t" ++) . s . ppr) l1)
+                        Nothing -> return ""
+                return l
+        setCurrentDirectory base_dir
+        return r
+                
