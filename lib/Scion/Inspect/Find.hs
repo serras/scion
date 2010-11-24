@@ -13,7 +13,7 @@
 -- Find things in a syntax tree.
 --
 module Scion.Inspect.Find 
-  ( findHsThing, SearchResult(..), SearchResults
+  ( findHsThing, SearchResult(..), SearchResults, Search
   , PosTree(..), PosForest, deepestLeaf, pathToDeepest
   , surrounds, overlaps
 #ifdef SCION_DEBUG
@@ -262,6 +262,12 @@ instance (Search id arg, Search id rec) => Search id (HsConDetails arg rec) wher
   search p s (PrefixCon args) = search p s args
   search p s (RecCon rec)     = search p s rec
   search p s (InfixCon a1 a2) = search p s a1 `mappend` search p s a2
+
+--instance (Search id id) => Search id  (HsModule id) where
+--  search p s m =search p s (hsmodDecls m)
+
+instance Search Name (RenamedSource) where
+  search p s (b,_,_,_) = search p s b
 
 instance (Search id id) => Search id (HsType id) where
   search _ s t = only (FoundType s t)
