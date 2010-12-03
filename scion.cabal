@@ -1,5 +1,5 @@
 name:            scion
-version:         0.1.0.6
+version:         0.1.0.7
 license:         BSD3
 license-file:    docs/LICENSE
 author:          Thomas Schilling <nominolo@googlemail.com>
@@ -51,7 +51,7 @@ library
     ghc-syb,
     ghc-syb-utils,
     hslogger     == 1.0.*,
-    AttoJson     >= 0.5.2,
+    AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
     uniplate     ,
@@ -124,7 +124,7 @@ executable scion-server
     ghc-syb,
     ghc-syb-utils,
     hslogger     == 1.0.*,
-    AttoJson     >= 0.5.2,
+    AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
     list-tries ,
@@ -185,7 +185,7 @@ executable scion-test
     ghc-syb,
     ghc-syb-utils,
     hslogger     == 1.0.*,
-    AttoJson     >= 0.5.2,
+    AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
     uniplate     ,
@@ -223,4 +223,4 @@ executable scion-test
   if impl(ghc == 6.12.*)
     cpp-options:   -DGHC_VERSION=612
 
-  ghc-options:  -Wall
+  ghc-options:  -Wall -fno-warn-unused-do-bind
