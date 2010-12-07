@@ -7,7 +7,7 @@ import qualified Data.Map as M
 import Text.JSON.AttoJSON
 
 lookupKey :: JSON a => JSValue -> S.ByteString -> Maybe a
-lookupKey = flip getField
+lookupKey = flip Text.JSON.AttoJSON.lookup
 
 makeObject :: [(S.ByteString, JSValue)] -> JSValue
 makeObject = JSObject . M.fromList
@@ -100,3 +100,6 @@ scionPrefix :: S.ByteString
 scionPrefix = S.pack "scion:"
 newline :: S.ByteString
 newline = S.pack "\n"
+
+modules :: S.ByteString
+modules=S.pack "modules"

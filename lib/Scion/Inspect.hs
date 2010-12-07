@@ -14,7 +14,7 @@
 -- Functionality to inspect Haskell programs.
 --
 module Scion.Inspect 
-  ( typeOfResult, prettyResult
+  ( typeOfResult, prettyResult, haddockType, qualifiedResult
   , typeDecls, classDecls, familyDecls
   , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
   , module Scion.Inspect.Find
@@ -37,10 +37,12 @@ import FastString
 import Lexer
 import Bag
 import Var ( varType )
+import qualified Var( varName ) 
 import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
 import GHC.SYB.Utils()
+import qualified Outputable as O ( (<>), empty, dot )
 
 import Data.Data
 import Data.Generics.Biplate
@@ -78,6 +80,30 @@ prettyResult (FoundName n) = ppr n
 prettyResult (FoundCon _ c) = ppr c
 prettyResult r = ppr r
 
+qualifiedResult :: OutputableBndr id => SearchResult id -> SDoc
+qualifiedResult (FoundId i) = qualifiedName $ getName  i
+qualifiedResult (FoundName n) = qualifiedName n
+qualifiedResult (FoundCon _ c) = qualifiedName $ getName c
+qualifiedResult r = ppr r
+
+qualifiedName :: Name -> SDoc
+qualifiedName n = maybe O.empty  (\x-> (ppr x) O.<> O.dot) (nameModule_maybe n) O.<> (ppr n)
+
+haddockType  :: SearchResult a -> String
+haddockType (FoundName n)
+        | isValOcc (nameOccName n)="v"
+        | otherwise= "t"
+haddockType (FoundId i)
+        | isValOcc (nameOccName (Var.varName i))="v"
+        | otherwise= "t"
+haddockType _="t"
+
+-- Haddock: Haddock.Backend.Xhtml.Utils.spliceURL                    
+--                    (name, kind) =
+--    case maybe_name of
+--      Nothing             -> ("","")
+--      Just n | isValOcc (nameOccName n) -> (escapeStr (getOccString n), "v")
+--             | otherwise -> (escapeStr (getOccString n), "t")  
 ------------------------------------------------------------------------------
 
 typeDecls :: TypecheckedMod m => m -> [LTyClDecl Name]

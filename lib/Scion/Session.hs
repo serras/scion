@@ -361,7 +361,7 @@ backgroundTypecheckFile fname0 = do
       message verbose $ "Background type checking: " ++ fname
       clearWarnings
       start_time <- liftIO $ getCurrentTime
-      modsum <- preprocessModule fname
+      
 
       let finish_up tc_res errs = do
               base_dir <- projectRootDir
@@ -383,6 +383,7 @@ backgroundTypecheckFile fname0 = do
 
       ghandle (\(e :: SourceError) -> finish_up Nothing (srcErrorMessages e)) $
         do
+          modsum <- preprocessModule fname
           -- TODO: measure time and stop after a phase if it takes too long?
           parsed_mod <- parseModule modsum
           ghandle (\(e :: SourceError) -> finish_up  (Just (Parsed parsed_mod)) (srcErrorMessages e)) $
