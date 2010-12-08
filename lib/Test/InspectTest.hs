@@ -6,7 +6,6 @@ import Scion.Inspect
 import Scion.Types
 import Scion.Types.Notes
 import Scion.Types.Outline
-import Scion.Session
 
 import Text.JSON.AttoJSON
 import FastString
@@ -17,7 +16,7 @@ import System.Directory
 import System.FilePath
 import qualified Data.ByteString.Char8 as S
 import Test.HUnit
-import qualified Outputable as O ( (<+>),alwaysQualify,neverQualify,text )
+import qualified Outputable as O ( (<+>),neverQualify,text )
 
 inspectTests :: Test
 inspectTests=TestList [testTokenTypesSimple,testTokenTypesPreproc,testTokenTypesPreproc2Lines,testTokenTypesLiteral,
@@ -163,9 +162,8 @@ functionAtLine line=do
                             let r = findHsThing in_range psrc
                             return $ case pathToDeepest r of
                               Nothing -> ""
-                              Just (x,l1) -> (s  $ ((qualifiedResult x)O.<+> (O.text $ haddockType x)))   -- ++"->"++ (concat $ map (("\n\t" ++) . s . ppr) l1)
+                              Just (x,_) -> (s  $ ((qualifiedResult x)O.<+> (O.text $ haddockType x)))   -- ++"->"++ (concat $ map (("\n\t" ++) . s . ppr) l1)
                         Nothing -> return ""
                 return l
         setCurrentDirectory base_dir
         return r
-                
