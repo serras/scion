@@ -13,6 +13,8 @@
 -- Cabal-related functionality.
 module Scion.Packages ( getPkgInfos ) where
 
+import Scion.Types
+
 import Prelude hiding (Maybe)
 import qualified Config
 import qualified System.Info
@@ -135,8 +137,17 @@ readContents pkgdb =
 #if __GLASGOW_HASKELL__ >= 612
       -- fix the encoding to UTF-8
       hSetEncoding h utf8
-#endif
+      catch (hGetContents h) (\err->do
+         logInfo $ ioeGetErrorString  err
+         hClose h
+         h' <- openFile file ReadMode
+         hSetEncoding h' localeEncoding
+         hGetContents h'
+         )
+#else
       hGetContents h
+#endif
+      
 
     -- | This function was lifted directly from ghc-pkg. Its sole purpose is
     -- parsing an input package description string and producing an
@@ -159,14 +170,18 @@ readContents pkgdb =
     -- pairs.
     pkgInfoReader ::  FilePath
                       -> IO [InstalledPackageInfo]
-    pkgInfoReader f = do
-      pkgStr <- readUTF8File f
-      let pkgInfo = parseInstalledPackageInfo pkgStr
-      case pkgInfo of
-        ParseOk _ info -> return [info]
-        -- FIXME: You'd want to return the error here.
-        ParseFailed _  -> return [emptyInstalledPackageInfo]
-
+    pkgInfoReader f = 
+      catch (
+         do
+              pkgStr <- readUTF8File f
+              let pkgInfo = parseInstalledPackageInfo pkgStr
+              case pkgInfo of
+                ParseOk _ info -> return [info]
+                ParseFailed err  -> do
+                        logInfo (show err)
+                        return [emptyInstalledPackageInfo]
+        ) (\_->return [emptyInstalledPackageInfo])
+        
   in case pkgdb of
       (PkgDirectory pkgdbDir) -> do
         confs <- listConf pkgdbDir
