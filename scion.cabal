@@ -46,6 +46,7 @@ library
     containers   >= 0.2 && < 0.4,
     directory    == 1.0.*,
     filepath     == 1.1.*,
+    hslogger     >= 1.0,
     ghc          >= 6.10 && < 6.13,
     ghc-paths    == 0.1.*,
     ghc-syb,
@@ -62,13 +63,12 @@ library
 
   if flag(cabal_1_8)
     build-depends:
-      Cabal >= 1.8,
-      hslogger     == 1.1.*
+      Cabal        >= 1.8,
+      hslogger     >= 1.1
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:
-      Cabal == 1.6.*,
-      hslogger     == 1.0.*
+      Cabal == 1.6.*
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
@@ -127,6 +127,7 @@ executable scion-server
     ghc-paths    == 0.1.*,
     ghc-syb,
     ghc-syb-utils,
+    hslogger     >= 1.0,
     AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
@@ -138,13 +139,12 @@ executable scion-server
 
   if flag(cabal_1_8)
     build-depends:
-      Cabal >= 1.8,
-      hslogger     == 1.1.*
+      Cabal      >= 1.8,
+      hslogger   >= 1.1
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:
-      Cabal == 1.6.*,
-      hslogger     == 1.0.*
+      Cabal == 1.6.*
     cpp-options:    -DCABAL_VERSION=106
   
   if flag(server)
@@ -191,6 +191,7 @@ executable scion-test
     ghc-paths    == 0.1.*,
     ghc-syb,
     ghc-syb-utils,
+    hslogger     >= 1.0,
     AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
@@ -205,12 +206,12 @@ executable scion-test
 
   if flag(cabal_1_8)
     build-depends:
-      Cabal >= 1.8,
-      hslogger     == 1.1.*
+      Cabal        >= 1.8,
+      hslogger     >= 1.1
     cpp-options:    -DCABAL_VERSION=108
   else
-    build-depends:  Cabal == 1.6.*,
-      hslogger     == 1.0.*
+    build-depends:
+      Cabal == 1.6.*
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
