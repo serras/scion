@@ -1,5 +1,6 @@
 *~
 dist/*
+.dist-scion/*
 *.hi
 *.o
 Setup.exe*
