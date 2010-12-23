@@ -11,9 +11,11 @@
 -- Notes, i.e., warnings, errors, etc.
 --
 module Scion.Types.Notes
-  ( Location, LocSource(..), mkLocation, mkNoLoc
+  ( Location, LocSource(..)
+  , mkLocation, mkNoLoc, mkLocPoint, mkLocPointForSource, mkMultiLineLoc
   , locSource, isValidLoc, noLocText, viewLoc
   , locStartCol, locEndCol, locStartLine, locEndLine
+  , overlapLoc
   , AbsFilePath(toFilePath), mkAbsFilePath
   , Note(..), NoteKind(..), Notes
   , ghcSpanToLocation, ghcErrMsgToNote, ghcWarnMsgToNote
@@ -29,6 +31,8 @@ import qualified Bag ( bagToList )
 
 import qualified Data.MultiSet as MS
 import System.FilePath
+
+-- import Debug.Trace (trace)
 
 infixr 9 `thenCmp`
 
@@ -136,18 +140,41 @@ mkLocation :: LocSource
            -> Int -- ^ end column
            -> Location
 mkLocation file l0 c0 l1 c1
-  | l0 > l1             = mkLocation file l1 c0 l0 c1
-  | l0 == l1 && c0 > c1 = mkLocation file l0 c1 l1 c0
-  | l0 == l1  = if c0 == c1
-                  then LocPoint file l0 c0
-                  else LocOneLine file l0 c0 c1
-  | otherwise = LocMultiLine file l0 l1 c0 c1
+  | l0 > l1              = mkLocation file l1 c1 l0 c0
+  | l0 == l1 && c0 > c1  = mkLocation file l0 c1 l1 c0
+  | l0 == l1 && c0 == c1 = LocPoint file l0 c0
+  | l0 == l1 && c0 /= c1 = LocOneLine file l0 c0 c1
+  | otherwise            = LocMultiLine file l0 l1 c0 c1
 
 -- | Construct a source location that does not specify a region.  The
 -- argument can be used to give some hint as to why there is no location
 -- available.  (E.g., \"File not found\").
 mkNoLoc :: String -> Location
 mkNoLoc msg = LocNone msg
+
+-- | Construct a point source location for a project root and file name
+mkLocPoint :: FilePath   -- ^ base/project root directory
+           -> String     -- ^ file name
+           -> Int -- ^ line
+           -> Int -- ^ column
+           -> Location
+mkLocPoint path fname line col = LocPoint (mkLocFile path fname) line col
+
+-- | Construct a point source location for a given Location
+mkLocPointForSource :: LocSource -- ^ The source
+                    -> Int -- ^ line
+                    -> Int -- ^ column
+                    -> Location
+mkLocPointForSource = LocPoint
+
+-- | Construct an explicit multiline Location, not an optimized Location as mkLocation would produce
+mkMultiLineLoc :: LocSource -- ^ The source location (file or other source)
+               -> Int       -- ^ Start line
+               -> Int       -- ^ End line
+               -> Int       -- ^ Start column
+               -> Int       -- ^ End column
+               -> Location
+mkMultiLineLoc = LocMultiLine 
 
 -- | Remove file name to save on size.
 --
@@ -229,6 +256,56 @@ thenCmp EQ x = x
 thenCmp x _  = x
 {-# INLINE thenCmp #-}
 
+-- | Test if two locations overlap
+overlapLoc :: Location -> Location -> Bool
+
+overlapLoc _ (LocNone _) = False
+overlapLoc (LocNone _) _ = False
+
+overlapLoc (LocOneLine srcFileA lineA sColA eColA) (LocOneLine srcFileB lineB sColB eColB) =
+     srcFileA == srcFileB
+  && lineA == lineB
+  && sColA < eColB
+  && sColB < eColA
+
+overlapLoc (LocOneLine srcFileA lineA sColA eColA) (LocPoint srcFileB lineB sColB) =
+     srcFileA == srcFileB
+  && lineA == lineB
+  && sColA <= sColB
+  && eColA > sColB
+  
+overlapLoc a@(LocPoint _ _ _) b@(LocOneLine _ _ _ _) = overlapLoc b a
+  
+overlapLoc (LocOneLine srcFileA lineA sColA eColA) (LocMultiLine srcFileB sLineB eLineB sColB eColB) =
+     srcFileA == srcFileB
+  && lineA >= sLineB
+  && lineA <= eLineB
+  && (lineA /= sLineB || eColA >= sColB)
+  && (lineA /= eLineB || sColA <= eColB)
+  
+overlapLoc a@(LocMultiLine _ _ _ _ _) b@(LocOneLine _ _ _ _) = overlapLoc b a
+
+overlapLoc (LocMultiLine srcFileA sLineA eLineA sColA eColA) (LocMultiLine srcFileB sLineB eLineB sColB eColB) =
+     (srcFileA == srcFileB)
+  && (eLineA /= sLineB || eColA > sColB)
+  && (sLineA /= eLineB || sColA <= eColB)
+  && (sLineA <= eLineB)
+  && (eLineA >= sLineB)
+
+overlapLoc (LocMultiLine srcFileA sLineA eLineA sColA eColA) (LocPoint srcFileB lineB sColB) =
+     srcFileA == srcFileB
+  && sLineA >= lineB
+  && eLineA <= lineB
+  && (sLineA /= lineB || sColA >= sColB)
+  && (eLineA /= lineB || eColA <= sColB)
+
+overlapLoc a@(LocPoint _ _ _) b@(LocMultiLine _ _ _ _ _) = overlapLoc b a
+
+overlapLoc (LocPoint srcFileA lineA sColA) (LocPoint srcFileB lineB sColB) =
+     srcFileA == srcFileB
+  && lineA == lineB
+  && sColA == sColB
+  
 -- * Converting from GHC types.
 
 -- | Convert a 'GHC.SrcSpan' to a 'Location'.
@@ -240,18 +317,22 @@ ghcSpanToLocation :: FilePath -- ^ Base directory
                   -> Location
 ghcSpanToLocation baseDir sp
   | GHC.isGoodSrcSpan sp =
-      mkLocation mkLocFile
+      mkLocation (mkLocFile baseDir (GHC.unpackFS (GHC.srcSpanFile sp)))
                  (GHC.srcSpanStartLine sp)
                  (GHC.srcSpanStartCol sp)
                  (GHC.srcSpanEndLine sp)
                  (GHC.srcSpanEndCol sp)
   | otherwise =
       mkNoLoc (GHC.showSDoc (GHC.ppr sp))
- where
-   mkLocFile =
-       case GHC.unpackFS (GHC.srcSpanFile sp) of
-         s@('<':_) -> OtherSrc s
-         p -> FileSrc $ mkAbsFilePath baseDir p
+
+-- | Construct a LocSource from a file name, converting the file name to an absolute path when necessary.
+mkLocFile :: FilePath -> String -> LocSource
+mkLocFile baseDir fileName =
+  case fileName of
+    -- | "<interactive>" source
+    s@('<':_) -> OtherSrc s
+    -- | Must be a file name...
+    p -> FileSrc $ mkAbsFilePath baseDir p
 
 ghcErrMsgToNote :: FilePath -> GHC.ErrMsg -> Note
 ghcErrMsgToNote = ghcMsgToNote ErrorNote

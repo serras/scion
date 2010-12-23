@@ -17,6 +17,7 @@ module Scion.Inspect
   ( typeOfResult, prettyResult, haddockType, qualifiedResult
   , typeDecls, classDecls, familyDecls
   , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
+  , tokenArbitraryPreceding
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
   , preprocessSource
@@ -49,8 +50,10 @@ import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
 import Data.List (sortBy,isPrefixOf)
 import Data.Ord (comparing)
-import Data.Maybe
+-- import Data.Maybe
 import Data.List ( foldl' )
+
+import Debug.Trace (trace)
 
 #if __GLASGOW_HASKELL__ >= 610
 import StringBuffer
@@ -268,13 +271,58 @@ tokens base_dir m = do
         ts<-getTokenStream m
         return $ catMaybes $ map (mkTokenDef base_dir) ts -}
 
+-- | Lex the current document contents, returning either a diagnostic Note or [TokenDef] token list.
 tokensArbitrary :: FilePath  -> String -> ScionM (Either Note [TokenDef])
-tokensArbitrary base_dir contents = do
-        r<-ghctokensArbitrary base_dir contents
-        case r of 
-                Right ts->return $ Right $ catMaybes $ map (mkTokenDef base_dir) ts
-                Left n->return $ Left n
+tokensArbitrary base_dir contents =
+  (\result ->
+    case result of 
+      Right toks -> return $ Right $ map (mkTokenDef base_dir) toks
+      Left n     -> return $ Left n
+  ) =<< ghctokensArbitrary base_dir contents
 
+-- | Extract the lexer token preceding the point SrcSpan.  
+tokenArbitraryPreceding :: FilePath    -- ^ Project root or base directory for absolute path conversion
+                           -> String   -- ^ Contents to be parsed
+                           -> Int      -- ^ Line
+                           -> Int      -- ^ Column
+                           -> Bool     -- ^ Literate source flag (True = literate, False = ordinary)
+                           -> ScionM (Either Note TokenDef)
+tokenArbitraryPreceding projectRoot contents line column literate =
+  let (ppTs, ppC) = preprocessSource contents literate
+      tokLocation = mkLocPointForSource interactive line column
+      -- | Create the sorted token list
+      toTokenList tokens = sortBy (comparing td_loc) (ppTs ++ (map (mkTokenDef projectRoot) tokens))
+      -- | The undefined/unknown token to indicate failure
+      undefToken = TokenDef (mkTokenName (ITunknown "")) (mkNoLoc "no token")
+      -- | Iteration seed function 
+      tokenPreceding :: [TokenDef] -> TokenDef
+      tokenPreceding tokens
+        | trace ("tokenPreceding " ++ (show tokens)) False = undefined
+        | otherwise
+        = tokenPreceding' undefToken tokens
+      -- | The function that actually extracts the preceding token
+      tokenPreceding' :: TokenDef -> [TokenDef] -> TokenDef
+      tokenPreceding' tok [] = tok
+      tokenPreceding' precToken (tok:toks)
+        | trace ("tokenPreceding': tokLocation = " ++ (show tokLocation)) False = undefined
+        | TokenDef _ span <- tok
+        , trace ("tokenPreceding': span = " ++ (show span)) False = undefined
+        | TokenDef _ span <- tok
+        , trace ("tokenPreceding': tokLocation <= span is " ++ (show (tokLocation <= span))) False = undefined
+        | TokenDef _ span <- tok
+        , trace ("tokenPreceding': overlapLoc is " ++ (show (overlapLoc tokLocation span))) False = undefined
+        | TokenDef _ span <- tok
+        , tokLocation <= span || overlapLoc tokLocation span
+        = precToken
+        | otherwise
+        = tokenPreceding' tok toks
+  in  ghctokensArbitrary projectRoot ppC >>=
+      (\ghcTokens ->
+        case ghcTokens of 
+          Right toks -> return $ Right $ (tokenPreceding . toTokenList) toks
+          Left n     -> return $ Left n
+      ) 
+  
 ghctokensArbitrary :: FilePath -> String -> ScionM (Either Note [Located Token])
 ghctokensArbitrary base_dir contents = do
         sb <- liftIO $ stringToStringBuffer contents
@@ -286,7 +334,7 @@ ghctokensArbitrary base_dir contents = do
         let prTS=lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
         --setSessionDynFlags dflags0
         case prTS of
-                POk _ ts        -> return $ Right $ (filter ofInterest ts)
+                POk _ toks      -> return $ Right $ (filter ofInterest toks)
                 PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
 
 lexerFlags :: [DynFlag]
@@ -314,41 +362,47 @@ lexerFlags =
 #endif
         ]                
                
-                
+-- | Filter tokens whose span appears legitimate (start line is less than end line, start column is
+-- less than end column.)
 ofInterest :: Located Token -> Bool
-ofInterest (L sp _) | 
-                sl <-(srcSpanStartLine sp),
-                sc <- (srcSpanStartCol sp),
-                el <- (srcSpanEndLine sp),
-                ec <- (srcSpanEndCol sp)   = (sl < el) || (sc < ec)
+ofInterest (L span _) =
+  let  sl = srcSpanStartLine span
+       sc = srcSpanStartCol span
+       el = srcSpanEndLine span
+       ec = srcSpanEndCol span
+  in (sl < el) || (sc < ec)
 
 toInteractive ::  Location -> Location
-toInteractive l | (_, sl1, sc1, el1, ec1) <- viewLoc l=mkLocation interactive sl1 sc1 el1 ec1
+toInteractive l =
+  let (_, sl1, sc1, el1, ec1) = viewLoc l
+  in  mkLocation interactive sl1 sc1 el1 ec1
 
 tokenTypesArbitrary :: FilePath -> String -> Bool -> ScionM (Either Note [TokenDef])
-tokenTypesArbitrary base_dir contents literate= do
-        let (ppTs,ppC)=preprocessSource contents literate
-        r<-ghctokensArbitrary base_dir ppC
-        case r of 
-                Right ts->do
-                        let toks=sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) ts))
-                        --liftIO $ putStrLn $ show toks
-                        return $ Right $ toks
-                Left n->return $ Left n
-                 
+tokenTypesArbitrary base_dir contents literate =
+  let (ppTs, ppC) = preprocessSource contents literate
+  in  (\result ->
+        case result of 
+          Right toks -> do
+            let tokenList = sortBy (comparing td_loc) (ppTs ++ (map (tokenToType base_dir) toks))
+            --liftIO $ putStrLn $ show tokenList
+            return $ Right $ tokenList
+          Left n-> return $ Left n
+      ) =<< ghctokensArbitrary base_dir ppC
+      
 tokenToType :: FilePath -> Located Token -> TokenDef
-tokenToType base_dir (L sp t) =TokenDef (tokenType t) (toInteractive $ ghcSpanToLocation base_dir sp)
+tokenToType base_dir (L sp t) = TokenDef (tokenType t) (toInteractive $ ghcSpanToLocation base_dir sp)
 
-mkTokenDef :: FilePath -> Located Token -> Maybe TokenDef
-mkTokenDef base_dir (L sp t) | Just s<-mkTokenName t=Just $ TokenDef s (ghcSpanToLocation base_dir sp)
-mkTokenDef _ _=Nothing
+-- | Make a token definition from its source location and Lexer.hs token type.
+mkTokenDef :: FilePath -> Located Token -> TokenDef
+mkTokenDef base_dir (L sp t) = TokenDef (mkTokenName t) (ghcSpanToLocation base_dir sp)
 
-mkTokenName :: Token -> Maybe String
-mkTokenName t= Just $ showConstr $ toConstr t
+mkTokenName :: Token -> String
+mkTokenName t = showConstr $ toConstr t
 
 interactive :: LocSource
 interactive = OtherSrc "<interactive>"
 
+-- | Preprocess some source, returning the literate and Haskell source as tuple.
 preprocessSource ::  String -> Bool -> ([TokenDef],String)
 preprocessSource contents literate=
         let 

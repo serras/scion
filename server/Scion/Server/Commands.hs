@@ -174,6 +174,7 @@ allCommands =
     , cmdToplevelNames
     , cmdOutline
     , cmdTokens
+    , cmdTokenPreceding
     , cmdTokenTypes
     , cmdParseCabal 
     , cmdParseCabalArbitrary
@@ -243,14 +244,32 @@ reqArg name f = reqArg' name id f
 optArg :: JSON a => String -> a -> (a -> r) -> Pa r
 optArg name dflt f = optArg' name dflt id f
 
+-- =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+-- Commonly used arguments:
+-- =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+-- | Command takes no arguments
 noArgs :: r -> Pa r
 noArgs = return
 
-infixr 1 <&>
+-- | Command takes a file name argument
+fileNameArg :: (String -> r) -> Pa r
+fileNameArg = reqArg "file"
+
+-- | Command takes a document argument
+docContentsArg :: (String -> r) -> Pa r
+docContentsArg = reqArg' "contents" S.unpack
+
+-- | Command takes an optional literate Haskell flag
+literateFlagOpt :: (Bool -> r) -> Pa r
+literateFlagOpt = optArg' "literate" False decodeBool
 
 -- | Combine two arguments.
 --
 -- TODO: explain type
+
+infixr 1 <&>
+
 (<&>) :: (a -> Pa b)
       -> (b -> Pa c)
       -> a -> Pa c
@@ -431,7 +450,7 @@ cmdParseCabal =
 
 cmdParseCabalArbitrary :: Cmd
 cmdParseCabalArbitrary = 
-    Cmd "parse-cabal-arbitrary" $ reqArg' "contents" S.unpack $ cmd
+    Cmd "parse-cabal-arbitrary" $ docContentsArg $ cmd
   where cmd cabal_contents = cabalParseArbitrary cabal_contents
   
 cmdCabalDependencies :: Cmd
@@ -454,8 +473,7 @@ cmdListCabalConfigurations =
 
 cmdWriteSampleConfig :: Cmd
 cmdWriteSampleConfig =
-    Cmd "write-sample-config" $
-      reqArg "file" $ cmd
+    Cmd "write-sample-config" $ fileNameArg cmd
   where cmd fp = liftIO $ writeSampleConfig fp
 
 allExposedModules :: ScionM [ModuleName]
@@ -488,7 +506,7 @@ cmdBackgroundTypecheckArbitrary :: Cmd
 cmdBackgroundTypecheckArbitrary = 
     Cmd "background-typecheck-arbitrary" $ 
         reqArg' "file" S.unpack <&> 
-        reqArg' "contents" S.unpack $ cmd
+        docContentsArg $ cmd
   where cmd fname contents = backgroundTypecheckArbitrary fname contents
 
 cmdForceUnload :: Cmd
@@ -506,7 +524,7 @@ cmdAddCmdLineFlag =
 cmdThingAtPoint :: Cmd
 cmdThingAtPoint =
     Cmd "thing-at-point" $
-      reqArg "file" <&> reqArg "line" <&> reqArg "column" <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
+      fileNameArg <&> reqArg "line" <&> reqArg "column" <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
   where
     cmd fname line col qual typed= do
       let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col
@@ -576,16 +594,24 @@ cmdOutline =
 
 cmdTokens :: Cmd
 cmdTokens = 
-     Cmd "tokens" $ reqArg' "contents" S.unpack $ cmd
+     Cmd "tokens" $ docContentsArg cmd
   where cmd contents = do
           root_dir <- projectRootDir
-          tokensArbitrary root_dir contents 
+          tokensArbitrary root_dir contents
+          
+cmdTokenPreceding :: Cmd
+cmdTokenPreceding =
+    Cmd "token-preceding" $ cmdArgs tokPrecWork
+  where cmdArgs = docContentsArg <&> reqArg "line" <&> reqArg "column" <&> literateFlagOpt
+
+tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)    
+tokPrecWork contents line column literate = do
+  rootDir <- projectRootDir
+  tokenArbitraryPreceding rootDir contents line column literate
 
 cmdTokenTypes :: Cmd
 cmdTokenTypes = 
-     Cmd "token-types" $ reqArg' "contents" S.unpack 
-      <&>  optArg' "literate" False decodeBool
-     $ cmd
+     Cmd "token-types" $ docContentsArg <&> literateFlagOpt $ cmd  
   where cmd contents literate= do
           root_dir <- projectRootDir
           tokenTypesArbitrary root_dir contents literate

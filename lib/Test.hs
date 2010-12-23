@@ -5,6 +5,7 @@ import Test.CabalTest
 
 import Test.HUnit
 
-main=do
+main :: IO Counts
+main = do
         putStrLn "Testing HUnit..."
         runTestTT cabalTests

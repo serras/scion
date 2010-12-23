@@ -1,6 +1,10 @@
 #!/bin/sh
+
+: ${ZIP:=zip}
 ZIPARCHIVE=scion-0.1.0.7.zip
+
 rm -f ${ZIPARCHIVE}
+
 find docs emacs lib README.markdown scion.cabal server Setup.hs vim_runtime_path \
 	'!' -name '*~' '!' -name '*.swp' -print | \
-	zip ${ZIPARCHIVE} -@
+	"${ZIP}" ${ZIPARCHIVE} -@
