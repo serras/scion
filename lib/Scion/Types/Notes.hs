@@ -13,6 +13,7 @@
 module Scion.Types.Notes
   ( Location, LocSource(..)
   , mkLocation, mkNoLoc, mkLocPoint, mkLocPointForSource, mkMultiLineLoc
+  , mkLineLoc
   , locSource, isValidLoc, noLocText, viewLoc
   , locStartCol, locEndCol, locStartLine, locEndLine
   , overlapLoc
@@ -31,8 +32,6 @@ import qualified Bag ( bagToList )
 
 import qualified Data.MultiSet as MS
 import System.FilePath
-
--- import Debug.Trace (trace)
 
 infixr 9 `thenCmp`
 
@@ -83,14 +82,22 @@ mkAbsFilePath baseDir dir
 -- We use a custom location type for two reasons:
 --
 --  1. We enforce the invariant, that the file path of the location is an
---     absolute path.
+--     absolute path, for a file source, or an internal other source, for
+--     dynamic documents.
 --
 --  2. Independent evolution from the GHC API.
 --
 -- To save space, the 'Location' type is kept abstract and uses special
 -- cases for notes that span only one line or are only one character wide.
 -- Use 'mkLocation' and 'viewLoc' as well as the respective accessor
--- functions to construct and destruct nodes.
+-- functions to construct and destructure nodes.
+--
+-- Note that 'mkLocation' is optimized to produce the most appropriate
+-- representation, i.e., if the location can be best represented by
+-- 'LocOneLine', then that will be the result. Other constructor functions
+-- exist to forcibly create a Location of a specific desired type. Note that
+-- the specialized constructors, such as mkLineLoc, are primarily used for
+-- testing, but could be used elsewhere when advantageous.
 --
 -- If no reasonable can be given, use the 'mkNoLoc' function, but be careful
 -- not to call 'viewLoc' or any other accessor function on such a
@@ -174,7 +181,14 @@ mkMultiLineLoc :: LocSource -- ^ The source location (file or other source)
                -> Int       -- ^ Start column
                -> Int       -- ^ End column
                -> Location
-mkMultiLineLoc = LocMultiLine 
+mkMultiLineLoc = LocMultiLine
+
+mkLineLoc :: LocSource      -- ^ The source location (file or other source)
+          -> Int            -- ^ Start line
+          -> Int            -- ^ Start column
+          -> Int            -- ^ End column
+          -> Location
+mkLineLoc = LocOneLine 
 
 -- | Remove file name to save on size.
 --
@@ -272,7 +286,7 @@ overlapLoc (LocOneLine srcFileA lineA sColA eColA) (LocPoint srcFileB lineB sCol
      srcFileA == srcFileB
   && lineA == lineB
   && sColA <= sColB
-  && eColA > sColB
+  && eColA >= sColB
   
 overlapLoc a@(LocPoint _ _ _) b@(LocOneLine _ _ _ _) = overlapLoc b a
   
@@ -288,14 +302,14 @@ overlapLoc a@(LocMultiLine _ _ _ _ _) b@(LocOneLine _ _ _ _) = overlapLoc b a
 overlapLoc (LocMultiLine srcFileA sLineA eLineA sColA eColA) (LocMultiLine srcFileB sLineB eLineB sColB eColB) =
      (srcFileA == srcFileB)
   && (eLineA /= sLineB || eColA > sColB)
-  && (sLineA /= eLineB || sColA <= eColB)
+  && (sLineA /= eLineB || sColA < eColB)
   && (sLineA <= eLineB)
   && (eLineA >= sLineB)
 
 overlapLoc (LocMultiLine srcFileA sLineA eLineA sColA eColA) (LocPoint srcFileB lineB sColB) =
      srcFileA == srcFileB
-  && sLineA >= lineB
-  && eLineA <= lineB
+  && sLineA <= lineB
+  && eLineA >= lineB
   && (sLineA /= lineB || sColA >= sColB)
   && (eLineA /= lineB || eColA <= sColB)
 

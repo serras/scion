@@ -53,7 +53,7 @@ import Data.Ord (comparing)
 -- import Data.Maybe
 import Data.List ( foldl' )
 
-import Debug.Trace (trace)
+-- import Debug.Trace (trace)
 
 #if __GLASGOW_HASKELL__ >= 610
 import StringBuffer
@@ -296,21 +296,11 @@ tokenArbitraryPreceding projectRoot contents line column literate =
       undefToken = TokenDef (mkTokenName (ITunknown "")) (mkNoLoc "no token")
       -- | Iteration seed function 
       tokenPreceding :: [TokenDef] -> TokenDef
-      tokenPreceding tokens
-        | trace ("tokenPreceding " ++ (show tokens)) False = undefined
-        | otherwise
-        = tokenPreceding' undefToken tokens
+      tokenPreceding tokens = tokenPreceding' undefToken tokens
       -- | The function that actually extracts the preceding token
       tokenPreceding' :: TokenDef -> [TokenDef] -> TokenDef
       tokenPreceding' tok [] = tok
       tokenPreceding' precToken (tok:toks)
-        | trace ("tokenPreceding': tokLocation = " ++ (show tokLocation)) False = undefined
-        | TokenDef _ span <- tok
-        , trace ("tokenPreceding': span = " ++ (show span)) False = undefined
-        | TokenDef _ span <- tok
-        , trace ("tokenPreceding': tokLocation <= span is " ++ (show (tokLocation <= span))) False = undefined
-        | TokenDef _ span <- tok
-        , trace ("tokenPreceding': overlapLoc is " ++ (show (overlapLoc tokLocation span))) False = undefined
         | TokenDef _ span <- tok
         , tokLocation <= span || overlapLoc tokLocation span
         = precToken
@@ -331,7 +321,7 @@ ghctokensArbitrary base_dir contents = do
         dflags0 <- getSessionDynFlags
         let dflags1 = foldl' dopt_set dflags0 lexerFlags
         --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
-        let prTS=lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
+        let prTS = lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
         --setSessionDynFlags dflags0
         case prTS of
                 POk _ toks      -> return $ Right $ (filter ofInterest toks)
