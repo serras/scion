@@ -174,6 +174,7 @@ allCommands =
     , cmdToplevelNames
     , cmdOutline
     , cmdTokens
+    , cmdTokenAtPoint
     , cmdTokenPreceding
     , cmdTokenTypes
     , cmdParseCabal 
@@ -263,6 +264,10 @@ docContentsArg = reqArg' "contents" S.unpack
 -- | Command takes an optional literate Haskell flag
 literateFlagOpt :: (Bool -> r) -> Pa r
 literateFlagOpt = optArg' "literate" False decodeBool
+
+-- | Command takes required line and column arguments
+lineColumnArgs :: (Int -> Int -> r) -> Pa r
+lineColumnArgs = reqArg "line" <&> reqArg "column" 
 
 -- | Combine two arguments.
 --
@@ -599,15 +604,22 @@ cmdTokens =
           root_dir <- projectRootDir
           tokensArbitrary root_dir contents
           
+cmdTokenAtPoint :: Cmd
+cmdTokenAtPoint =
+  Cmd "token-at-point" $ cmdArgs tokenAtPoint
+  where cmdArgs = docContentsArg <&> lineColumnArgs <&> literateFlagOpt
+        tokenAtPoint contents line column literate =
+          projectRootDir
+          >>= (\rootDir -> tokenArbitraryAtPoint rootDir contents line column literate)
+   
 cmdTokenPreceding :: Cmd
 cmdTokenPreceding =
-    Cmd "token-preceding" $ cmdArgs tokPrecWork
-  where cmdArgs = docContentsArg <&> reqArg "line" <&> reqArg "column" <&> literateFlagOpt
-
-tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)    
-tokPrecWork contents line column literate = do
-  rootDir <- projectRootDir
-  tokenArbitraryPreceding rootDir contents line column literate
+  Cmd "token-preceding" $ cmdArgs tokenPreceding
+  where cmdArgs = docContentsArg <&> lineColumnArgs <&> literateFlagOpt
+        -- tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)    
+        tokenPreceding contents line column literate =
+          projectRootDir
+          >>= (\rootDir -> tokenArbitraryPreceding rootDir contents line column literate)
 
 cmdTokenTypes :: Cmd
 cmdTokenTypes = 

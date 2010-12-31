@@ -17,7 +17,7 @@ module Scion.Inspect
   ( typeOfResult, prettyResult, haddockType, qualifiedResult
   , typeDecls, classDecls, familyDecls
   , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
-  , tokenArbitraryPreceding
+  , tokenArbitraryAtPoint, tokenArbitraryPreceding
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
   , preprocessSource
@@ -341,11 +341,9 @@ toInteractive l =
 
 -- | Generate the interactive token list used by EclipseFP for syntax highlighting
 tokenTypesArbitrary :: FilePath -> String -> Bool -> ScionM (Either Note [TokenDef])
-tokenTypesArbitrary projectRoot contents literate =
-  let
-    convertTokens toks = map (tokenToType projectRoot) toks
-  in
-    generateTokens projectRoot contents literate convertTokens id
+tokenTypesArbitrary projectRoot contents literate = generateTokens projectRoot contents literate convertTokens id
+  where
+    convertTokens = map (tokenToType projectRoot)
 
 -- | Extract the lexer token preceding the line/column location.  
 tokenArbitraryPreceding :: FilePath    -- ^ Project root or base directory for absolute path conversion
@@ -359,10 +357,8 @@ tokenArbitraryPreceding projectRoot contents line column literate =
       tokLocation = mkLocPointForSource interactive line column
       -- The undefined/unknown token to indicate failure
       undefToken = TokenDef (mkTokenName (ITunknown "")) (mkNoLoc "no token")
-      -- Convert GHC's Located Tokens to TokenDefs 
-      toTokenDefList toks = map (mkTokenDef projectRoot) toks
       -- Filter tokens to find token preceding specified location
-      tokenPreceding toks = tokenPreceding' undefToken toks
+      tokenPreceding = tokenPreceding' undefToken
       -- The function that actually extracts the preceding token
       tokenPreceding' :: TokenDef -> [TokenDef] -> TokenDef
       tokenPreceding' tok [] = tok
@@ -372,25 +368,59 @@ tokenArbitraryPreceding projectRoot contents line column literate =
         = precToken
         | otherwise
         = tokenPreceding' tok toks
-  in generateTokens projectRoot contents literate toTokenDefList tokenPreceding
+  in generateHaskellLexerTokens projectRoot contents literate tokenPreceding
+  
+tokenArbitraryAtPoint :: FilePath -- ^ Project root or base directory for absolute path conversion
+                      -> String   -- ^ Contents to be parsed
+                      -> Int      -- ^ Line
+                      -> Int      -- ^ Column
+                      -> Bool     -- ^ Literate source flag (True = literate, False = ordinary)
+                      -> ScionM (Either Note TokenDef)
+tokenArbitraryAtPoint projectRoot contents line column literate =
+  let -- Convert line/column to a token location
+      tokLocation = mkLocPointForSource interactive line column
+      -- The undefined/unknown token to indicate failure
+      undefToken = TokenDef (mkTokenName (ITunknown "")) (mkNoLoc "no token")
+      -- The filter function to extract the token at point
+      tokenAtPoint [] = undefToken
+      tokenAtPoint (tok:toks)
+        | TokenDef _ span <- tok
+        , tokLocation <= span || overlapLoc tokLocation span
+        = tok
+        | otherwise
+        = tokenAtPoint toks
+  in generateHaskellLexerTokens projectRoot contents literate tokenAtPoint 
 
--- | Generate a list of TokenDef tokens, filtered by a function
-generateTokens :: FilePath -- ^ The project's root directory
-               -> String -- ^ The current document contents, to be parsed
-               -> Bool -- ^ Literate Haskell flag
+-- | Parse the current document, generating a TokenDef list, filtered by a function
+generateTokens :: FilePath                        -- ^ The project's root directory
+               -> String                          -- ^ The current document contents, to be parsed
+               -> Bool                            -- ^ Literate Haskell flag
                -> ([Located Token] -> [TokenDef]) -- ^ Transform function from GHC tokens to TokenDefs
-               -> ([TokenDef] -> a) -- ^ The filter function
+               -> ([TokenDef] -> a)               -- ^ The TokenDef filter function
                -> ScionM (Either Note a)
 generateTokens projectRoot contents literate xform filterFunc =
   let (ppTs, ppC) = preprocessSource contents literate
-  in  (\result ->
-        case result of 
-          Right toks ->
-            let filterResult = filterFunc $ sortBy (comparing td_loc) (ppTs ++ (xform toks))
-            --liftIO $ putStrLn $ show tokenList
-            in return $ Right filterResult
-          Left n-> return $ Left n
-      ) =<< ghctokensArbitrary projectRoot ppC
+  in   ghctokensArbitrary projectRoot ppC
+       >>= (\result ->
+             case result of 
+               Right toks ->
+                 let filterResult = filterFunc $ sortBy (comparing td_loc) (ppTs ++ (xform toks))
+                 --liftIO $ putStrLn $ show tokenList
+                 in return $ Right filterResult
+               Left n-> return $ Left n
+           )
+
+-- | A variation on generateTokens, which produces a TokenDef list of Haskell lexer tokens
+-- (as opposed to interactive tokens, like tokensArbitrary), which can be filtered
+generateHaskellLexerTokens :: FilePath                        -- ^ The project's root directory
+                           -> String                          -- ^ The current document contents, to be parsed
+                           -> Bool                            -- ^ Literate Haskell flag
+                           -> ([TokenDef] -> a)               -- ^ The TokenDef filter function
+                           -> ScionM (Either Note a)
+generateHaskellLexerTokens projectRoot contents literate filterFunc =
+  let -- Convert GHC's Located Tokens to TokenDefs 
+      toTokenDefList = map (mkTokenDef projectRoot)
+  in generateTokens projectRoot contents literate toTokenDefList filterFunc
       
 tokenToType :: FilePath -> Located Token -> TokenDef
 tokenToType base_dir (L sp t) = TokenDef (tokenType t) (toInteractive $ ghcSpanToLocation base_dir sp)
