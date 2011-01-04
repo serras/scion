@@ -103,8 +103,7 @@ handleRequest req@(JSObject _) =
    decode_params _ _ seq_id =
      return (paramParseError seq_id "Params not an object", True)
   
-handleRequest _ = do
-  return (malformedRequest, True)
+handleRequest _ = return(malformedRequest, True)
                                
 malformedRequest :: JSValue
 malformedRequest = Dic.makeObject 
@@ -209,7 +208,12 @@ handleScionException m = ((((do
 
 ------------------------------------------------------------------------------
 
-newtype Pa a = Pa { unPa :: JSValue -> Either String a }
+-- | Parsed argument ("Pa") type
+newtype Pa a = Pa {
+   unPa :: JSValue
+        -> Either String a
+   }
+   
 instance Monad Pa where
   return x = Pa $ \_ -> Right x
   m >>= k = Pa $ \req -> 
@@ -529,7 +533,7 @@ cmdAddCmdLineFlag =
 cmdThingAtPoint :: Cmd
 cmdThingAtPoint =
     Cmd "thing-at-point" $
-      fileNameArg <&> reqArg "line" <&> reqArg "column" <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
+      fileNameArg <&> lineColumnArgs <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
   where
     cmd fname line col qual typed= do
       let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col

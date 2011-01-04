@@ -14,7 +14,10 @@
 -- This module analyses Haskell code to find the definition sites of
 -- identifiers within.
 --
-module Scion.Inspect.DefinitionSite where
+module Scion.Inspect.DefinitionSite (
+    moduleGraphDefSiteDB
+  , dumpDefSiteDB
+) where
 
 import Scion.Types
 import Scion.Types.Notes
@@ -49,13 +52,12 @@ moduleGraphDefSiteDB ::
      FilePath    -- ^ Base path (see 'ghcSpanToLocation')
   -> ModuleGraph
   -> ScionM DefSiteDB
-moduleGraphDefSiteDB base_dir mg = do
-    let mg' = filter (not . isBootSummary) mg
-    foldM go emptyDefSiteDB mg'
-  where
-    go db modsum = do
-      db1 <- moduleSiteDB (base_dir, ms_mod modsum)
-      return (db1 `mappend` db)
+moduleGraphDefSiteDB base_dir mg =
+  let genmod db modsum =
+        moduleSiteDB (base_dir, ms_mod modsum)
+        >>= (\moddb -> return (moddb `mappend` db))
+      mg' = filter (not . isBootSummary) mg
+  in foldM genmod emptyDefSiteDB mg'
 
 -- | Construct a 'DefSiteDB' for a single module only.
 moduleSiteDB :: (FilePath, Module) 
@@ -65,8 +67,7 @@ moduleSiteDB (base_dir, mdl) = do
   mb_mod_info <- getModuleInfo mdl
   case mb_mod_info of
     Nothing -> return emptyDefSiteDB
-    Just mod_info -> do
-      return $ mkSiteDB base_dir (modInfoTyThings mod_info)
+    Just mod_info -> return $ mkSiteDB base_dir (modInfoTyThings mod_info)
 
 -- ** Internal Stuff
 

@@ -15,7 +15,10 @@ import GHC
 import Name
 import Outputable
 
+-- | Extract the renamed source's @HsGroup@ information, which contains its declaration
+-- information. Note that @RenamedSource@ structure differs between versions of GHC. 
 renamedSourceGroup :: RenamedSource -> HsGroup Name
+
 isUserDefinedId :: Id -> Bool
 isRecStmt :: StmtLR idL idR -> Bool
 

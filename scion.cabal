@@ -89,6 +89,9 @@ library
     Scion.Ghc,
     Scion, Scion.Packages
 
+  -- ghc options are additive...
+  ghc-options:  -Wall
+
   if flag(testing)
     build-depends: QuickCheck >= 2
     cpp-options:   -DSCION_DEBUG
@@ -104,10 +107,9 @@ library
     cpp-options:   -DWPINLINE -DGHC_VERSION=610
 
   if impl(ghc == 6.12.*)
-    cpp-options:   -DGHC_VERSION=612
+    cpp-options:  -DWPINLINE -DGHC_VERSION=612
     ghc-options:  -fno-warn-unused-do-bind
 
-  ghc-options:  -Wall
   other-modules: Scion.Types.JSONDictionary
 
 executable scion-server
@@ -175,7 +177,7 @@ executable scion-server
     cpp-options:   -DWPINLINE -DGHC_VERSION=610
 
   if impl(ghc == 6.12.*)
-    cpp-options:   -DGHC_VERSION=612
+    cpp-options:   -DWPINLINE -DGHC_VERSION=612
 
 executable scion-test
   if !flag(testing)

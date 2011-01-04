@@ -83,6 +83,7 @@ prettyResult (FoundName n) = ppr n
 prettyResult (FoundCon _ c) = ppr c
 prettyResult r = ppr r
 
+-- | Pretty-print a search result as qualified name 
 qualifiedResult :: OutputableBndr id => SearchResult id -> SDoc
 qualifiedResult (FoundId i) = qualifiedName $ getName  i
 qualifiedResult (FoundName n) = qualifiedName n
@@ -110,13 +111,15 @@ haddockType _="t"
 ------------------------------------------------------------------------------
 
 typeDecls :: TypecheckedMod m => m -> [LTyClDecl Name]
-typeDecls m | Just grp <- renamedSourceGroup `fmap` renamedSource m =
-    [ t | t <- hs_tyclds grp
-        , isDataDecl (unLoc t) 
-            || isTypeDecl (unLoc t) 
-            || isSynDecl (unLoc t) ]
-    -- XXX: include families?
-typeDecls _ = error "typeDecls: No renamer information available."
+typeDecls modname =
+  let srcgrp = renamedSourceGroup `fmap` renamedSource modname
+      typeDecls' (Just grp) = [ t | t <- hs_tyclds grp
+                                  , isDataDecl (unLoc t) 
+                                    || isTypeDecl (unLoc t) 
+                                    || isSynDecl (unLoc t) ]
+                                    -- XXX: include families?
+      typeDecls' Nothing = error "typeDecls: No renamer information available."
+  in  typeDecls' srcgrp
 
 classDecls :: RenamedSource -> [LTyClDecl Name]
 classDecls rn_src =
@@ -261,9 +264,9 @@ outline _ _ = []
 mkOutlineDef' :: FilePath -- ^ The document's file path
                -> LHsDecl RdrName
                -> [OutlineDef]
-mkOutlineDef' base_dir (L sp t) | TyClD d <-t = mkOutlineDef base_dir (L sp d)
-mkOutlineDef' base_dir (L sp t) | InstD d <-t = [mkInstDef base_dir (L sp d)]
-mkOutlineDef' base_dir (L sp t) | ValD d <-t = mkValBind base_dir sp d
+mkOutlineDef' base_dir (L sp (TyClD d)) = mkOutlineDef base_dir (L sp d)
+mkOutlineDef' base_dir (L sp (InstD d)) = [mkInstDef base_dir (L sp d)]
+mkOutlineDef' base_dir (L sp (ValD d))  = mkValBind base_dir sp d
 mkOutlineDef' _ _=[]
 
 

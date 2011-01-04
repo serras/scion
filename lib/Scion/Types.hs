@@ -121,11 +121,6 @@ instance GhcMonad ScionM where
   getSession = liftScionM getSession
   setSession = liftScionM . setSession
 
-{- Currently unused, sole use is commented out in 'componentOptions (FileComp _f)'
-   above.
-io :: MonadIO m => IO a -> m a
-io = liftIO -}
-
 modifySessionState :: (SessionState -> SessionState) -> ScionM ()
 modifySessionState f =
     ScionM $ \r -> liftIO $ do s <- readIORef r; writeIORef r $! f s

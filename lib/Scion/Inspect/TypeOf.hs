@@ -8,7 +8,10 @@
 -- Stability   : experimental
 -- Portability : portable
 --
-module Scion.Inspect.TypeOf where
+module Scion.Inspect.TypeOf
+ ( typeOf
+ )
+where
 
 import Scion.Inspect.Find ( SearchResult(..) )
 
@@ -19,27 +22,27 @@ import TypeRep ( Type(..), PredType(..) )
 ------------------------------------------------------------------------------
 
 typeOf :: (SearchResult Id, [SearchResult Id]) -> Maybe Type
-typeOf (leaf, path) = case leaf of
-   FoundId i -> type_of_id i
-   _ -> Nothing
-  where
-    type_of_id i = case path of
-      FoundExpr _ (HsVar _) : FoundExpr _ (HsWrap wr _) : _ ->
-          Just $ reduce_type $ unwrap wr (varType i)
-      _ -> Just (varType i)
-
-    unwrap WpHole t            = t
-    unwrap (WpCompose w1 w2) t = unwrap w1 (unwrap w2 t)
-    unwrap (WpCast _) t        = t -- XXX: really?
-    unwrap (WpTyApp t') t      = AppTy t t'
-    unwrap (WpTyLam tv) t      = ForAllTy tv t
-    -- do something else with coercion/dict vars?
-    unwrap (WpApp v) t         = AppTy t (TyVarTy v)
-    unwrap (WpLam v) t         = ForAllTy v t
-    unwrap (WpLet _bs) t       = t
+typeOf (FoundId ident, path) =
+  let -- Unwrap a HsWrapper and its associated type
+      unwrap WpHole t            = t
+      unwrap (WpCompose w1 w2) t = unwrap w1 (unwrap w2 t)
+      unwrap (WpCast _) t        = t -- XXX: really?
+      unwrap (WpTyApp t') t      = AppTy t t'
+      unwrap (WpTyLam tv) t      = ForAllTy tv t
+      -- do something else with coercion/dict vars?
+      unwrap (WpApp v) t         = AppTy t (TyVarTy v)
+      unwrap (WpLam v) t         = ForAllTy v t
+      unwrap (WpLet _bs) t       = t
 #ifdef WPINLINE
-    unwrap WpInline t          = t
+      unwrap WpInline t          = t
 #endif
+  in  case path of
+        FoundExpr _ (HsVar _) : FoundExpr _ (HsWrap wr _) : _ ->
+            Just $ reduce_type $ unwrap wr (varType ident)
+        _ -> Just (varType ident)
+
+-- All other search results produce no type information
+typeOf _ = Nothing
 
 -- | Reduce a top-level type application if possible.  That is, we perform the
 -- following simplification step:
