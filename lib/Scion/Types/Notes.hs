@@ -343,9 +343,9 @@ ghcSpanToLocation baseDir sp
 mkLocFile :: FilePath -> String -> LocSource
 mkLocFile baseDir fileName =
   case fileName of
-    -- | "<interactive>" source
+    -- "<interactive>" source
     s@('<':_) -> OtherSrc s
-    -- | Must be a file name...
+    -- Must be a file name...
     p -> FileSrc $ mkAbsFilePath baseDir p
 
 ghcErrMsgToNote :: FilePath -> GHC.ErrMsg -> Note
