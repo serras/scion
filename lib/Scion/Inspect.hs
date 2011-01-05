@@ -15,9 +15,12 @@
 --
 module Scion.Inspect 
   ( typeOfResult, prettyResult, haddockType, qualifiedResult
-  , typeDecls, classDecls, familyDecls
-  , toplevelNames, outline, tokensArbitrary, tokenTypesArbitrary
+  , typeDecls, typeDeclsParsed, classDecls, familyDecls
+  , toplevelNames, outline
+  , tokensArbitrary
+  , tokenTypesArbitrary
   , tokenArbitraryAtPoint, tokenArbitraryPreceding
+  {- , visibleConstructors -}
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
   , preprocessSource
@@ -110,17 +113,31 @@ haddockType _="t"
 --             | otherwise -> (escapeStr (getOccString n), "t")  
 ------------------------------------------------------------------------------
 
-typeDecls :: TypecheckedMod m => m -> [LTyClDecl Name]
-typeDecls modname =
-  let srcgrp = renamedSourceGroup `fmap` renamedSource modname
+-- | Generate the located list of type, data and type synonyms for a type-checked module.
+typeDecls :: TypecheckedModule -> [LTyClDecl Name]
+typeDecls m =
+  let srcgrp = renamedSourceGroup `fmap` renamedSource m
       typeDecls' (Just grp) = [ t | t <- hs_tyclds grp
                                   , isDataDecl (unLoc t) 
-                                    || isTypeDecl (unLoc t) 
-                                    || isSynDecl (unLoc t) ]
-                                    -- XXX: include families?
+                                  || isTypeDecl (unLoc t) 
+                                  || isSynDecl (unLoc t) ]
+                                  -- XXX: include families?
       typeDecls' Nothing = error "typeDecls: No renamer information available."
-  in  typeDecls' srcgrp
+  in  typeDecls' srcgrp  
 
+-- | Generate the list of types, data and type synonyms for a parsed module 
+typeDeclsParsed :: ParsedModule -> [TyClDecl RdrName]
+typeDeclsParsed pm =
+  let -- Check HsDecl is a TyClD:
+      isTyClDecl (TyClD _) = True
+      isTyClDecl _         = False
+      -- Extract the TyClDecl from the HsDecl
+      getTyClDecl (TyClD decl) = decl
+      getTyClDecl _otherwise   = error "Unexpectedly bad filtering in typeDeclsParsed"
+      -- Get the declarations from the module, stripping off the location information
+      modDecls = map unLoc $ (hsmodDecls . unLoc . pm_parsed_source) pm
+  in  [ getTyClDecl ty | ty <- modDecls, isTyClDecl ty ]
+ 
 classDecls :: RenamedSource -> [LTyClDecl Name]
 classDecls rn_src =
     [ t | t <- hs_tyclds (renamedSourceGroup rn_src)
@@ -248,26 +265,52 @@ instBinds :: FilePath -> HsGroup Name -> [OutlineDef]
 instBinds base_dir grp = map (mkInstDef base_dir) (hs_instds grp)
 
 -- | Generate outline view for the given module.
-outline ::FilePath
-           -- ^ The base directory for relative source locations,
-           -- typically the project root.
-        -> BgTcCache
-        -> [OutlineDef]
-outline base_dir (Typechecked m)
-  | Just grp <- renamedSourceGroup `fmap` renamedSource m =
-     concatMap (mkOutlineDef base_dir) (hs_tyclds grp)
-       ++ valBinds base_dir grp
-       ++ instBinds base_dir grp
-outline base_dir (Parsed m) = concatMap (mkOutlineDef' base_dir) (hsmodDecls $ unLoc $ pm_parsed_source m)
-outline _ _ = []
+outline ::FilePath       -- ^ The base directory for relative source locations,
+                         -- typically the project root.
+        -> BgTcCache     -- ^ Background type checker's cache
+        -> [OutlineDef]  -- ^ Outline definitions
+        
+outline base_dir (Typechecked mod) =
+  let srcgroup = renamedSourceGroup `fmap` renamedSource mod
+      outline' (Just grp) = concatMap (mkOutlineDef base_dir) (hs_tyclds grp)
+                            ++ valBinds base_dir grp
+                            ++ instBinds base_dir grp
+      outline' _ = []
+  in  outline' srcgroup
 
-mkOutlineDef' :: FilePath -- ^ The document's file path
-               -> LHsDecl RdrName
-               -> [OutlineDef]
+outline base_dir (Parsed mod) = concatMap (mkOutlineDef' base_dir) (hsmodDecls $ unLoc $ pm_parsed_source mod)
+
+mkOutlineDef' :: FilePath          -- ^ The document's root path for relative source name
+               -> LHsDecl RdrName  -- ^ The parsed source, with source locations
+               -> [OutlineDef]     -- ^ Outline definitions
 mkOutlineDef' base_dir (L sp (TyClD d)) = mkOutlineDef base_dir (L sp d)
 mkOutlineDef' base_dir (L sp (InstD d)) = [mkInstDef base_dir (L sp d)]
 mkOutlineDef' base_dir (L sp (ValD d))  = mkValBind base_dir sp d
-mkOutlineDef' _ _=[]
+mkOutlineDef' _ _ = []
+
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+-- Completion support
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+
+{-
+visibleConstructors :: FilePath
+                    -> BgTcCache
+                    -> [SDoc]
+
+Hold onto this: will need it for converting a data type name into its constructor alternatives 
+visibleConstructors projectRoot (Typechecked mod) =
+  let srcgroup = renamedSourceGroup `fmap` renamedSource mod
+      getDataTypes (Just grp) = [ t | (L _ t) <- hs_tyclds grp, isDataDecl t ]
+      getDataTypes Nothing    = []
+      iterCTors (TyData { tcdCons = lConsList }) = [ (formatCtor . unLoc) i | i <- lConsList]
+      iterCTors _ = []
+      formatCtor (ConDecl { con_name = name, con_qvars = vars }) =
+        (ppr . unLoc) name <+> interppSP [ unLoc i | i <- vars ]
+  in  concatMap iterCTors (getDataTypes srcgroup)
+
+visibleConstructors projectRoot (Parsed mod) = [O.text "!!foobars!!"]
+-}
+
 
 
 {- FIXME: unused
@@ -425,6 +468,7 @@ generateHaskellLexerTokens projectRoot contents literate filterFunc =
       toTokenDefList = map (mkTokenDef projectRoot)
   in generateTokens projectRoot contents literate toTokenDefList filterFunc
       
+-- | Convert a GHC token to an interactive token (abbreviated token type)
 tokenToType :: FilePath -> Located Token -> TokenDef
 tokenToType base_dir (L sp t) = TokenDef (tokenType t) (toInteractive $ ghcSpanToLocation base_dir sp)
 

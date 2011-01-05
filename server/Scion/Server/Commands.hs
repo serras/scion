@@ -180,6 +180,7 @@ allCommands =
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
+    , cmdTypeNames
     ]
 
 ------------------------------------------------------------------------------
@@ -730,3 +731,31 @@ cmdDumpNameDB =
      db <- buildNameDB
      dumpNameDB db
      return ()
+
+-- | Get the type names for the current source in the background typecheck cache,
+-- both local and imported from modules.
+cmdTypeNames :: Cmd
+cmdTypeNames =
+  Cmd "type-names" $ noArgs $ gets bgTcCache >>= getModuleTypes
+  where
+    getModuleTypes (Just (Typechecked tcm)) = return $ localTcmTypes tcm
+    getModuleTypes (Just (Parsed pm)) = return $ localPmTypes pm
+    getModuleTypes Nothing = return [("","")]
+    -- Types local to the current source
+    localTcmTypes tcm = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
+    localPmTypes pm   = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
+    -- Output format is a tuple ("type","module")
+    formatInfo modname ty = (formatTyDecl ty, modname)
+    -- The stuff you have to go through just to get the module's name... :-)
+    getTcmModuleName tcm = (getModuleName . tm_parsed_module) tcm
+    getModuleName pm     = (moduleNameString . moduleName . ms_mod . pm_mod_summary) pm
+    -- Format a type declaration
+    formatTyDecl :: (Outputable t) => TyClDecl t -> String
+    formatTyDecl (TyFamily { tcdLName = name })  = formatTyName name
+    formatTyDecl (TyData { tcdLName = name })    = formatTyName name
+    formatTyDecl (TySynonym { tcdLName = name }) = formatTyName name
+    -- Theoretically, this is never matched
+    formatTyDecl _ = error "Bad filtering in cmdTypeNames"
+    -- Type name formattter
+    formatTyName :: (Outputable e) => Located e -> String
+    formatTyName = (showSDocUnqual . ppr . unLoc)
