@@ -5,10 +5,13 @@ cpp_flags="-DWPINLINE"
 
 # Figure out what version of GHC we've got to set cabal flags appropriately:
 
-( ghc --version 2>&1 | grep '6.12' ) && { \
+if ( ghc --version 2>&1 | grep '6.12' ); then
 	cabal_flags="${cabal_flags} -fcabal_1_8"
 	cpp_flags="${cpp_flags} -DCABAL_VERSION=108 -DHAVE_PACKAGE_DB_MODULES -DGHC_VERSION=612"
-}
+else
+	cabal_flags="${cabal_flags} -fcabal_1_6"
+	cpp_flags="${cpp_flags} -DCABAL_VERSION=106 -DHAVE_PACKAGE_DB_MODULES -DGHC_VERSION=610"
+fi
 
 
 # Have cabal build the package dependency list for us, by running configure in a
