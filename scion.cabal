@@ -54,8 +54,8 @@ library
     AttoJson     >= 0.5.8,
     multiset     >= 0.1 && < 0.3,
     time         == 1.1.*,
-    uniplate     ,
-    list-tries ,
+    uniplate,
+    list-tries,
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
     old-time     == 1.0.*,
@@ -68,7 +68,7 @@ library
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:
-      Cabal == 1.6.*
+      Cabal        == 1.6.*,
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib

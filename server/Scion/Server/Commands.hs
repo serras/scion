@@ -5,19 +5,20 @@
 -- Module      : Scion.Server.Commands
 -- Copyright   : (c) Thomas Schilling 2008
 -- License     : BSD-style
--- 
+--
 -- Maintainer  : nominolo@gmail.com
 -- Stability   : experimental
 -- Portability : portable
--- 
+--
 -- Commands provided by the server.
--- 
+--
 -- TODO: Need some way to document the wire protocol.  Autogenerate?
--- 
-module Scion.Server.Commands ( 
+--
+module Scion.Server.Commands (
   handleRequest, malformedRequest, -- allCommands, allCommands',
-  -- these are reused in the vim interface 
+  -- these are reused in the vim interface
   supportedPragmas, allExposedModules,
+  cmdNamesInScope
 ) where
 
 import Prelude as P
@@ -54,7 +55,7 @@ import GHC.SYB.Utils
 #ifndef HAVE_PACKAGE_DB_MODULES
 import UniqFM ( eltsUFM )
 import Packages ( pkgIdMap )
-  
+
 import Distribution.InstalledPackageInfo
 #endif
 
@@ -62,7 +63,7 @@ type KeepGoing = Bool
 
 -- a scion request is JS object with 3 keys:
 -- method: the method to be called
--- params: arguments to be passed 
+-- params: arguments to be passed
 -- id    : this value will be passed back to the client
 --         to identify a reply to a specific request
 --         asynchronous requests will be implemented in the future
@@ -72,11 +73,11 @@ handleRequest req@(JSObject _) =
                    params <- Dic.lookupKey req (Dic.params)
                    seq_id <- Dic.lookupKey req (Dic.id)
                    return (method, params, seq_id)
-  in 
+  in
   case request of
     Nothing -> return (malformedRequest, True)
-    Just (method, params, seq_id) 
-     | method == Dic.quit -> return (Dic.makeObject 
+    Just (method, params, seq_id)
+     | method == Dic.quit -> return (Dic.makeObject
                              [(Dic.version, JSString $ Dic.version01)
                              ,(Dic.result, JSNull)
                              ,(Dic.id, seq_id)], False)
@@ -96,27 +97,27 @@ handleRequest req@(JSObject _) =
            case r of
              Error msg -> return (commandExecError seq_id msg, True)
              Ok a ->
-                 return (Dic.makeObject 
+                 return (Dic.makeObject
                     [(Dic.version, str "0.1")
                     ,(Dic.id, seq_id)
                     ,(Dic.result, toJSON a)], True)
    decode_params _ _ seq_id =
      return (paramParseError seq_id "Params not an object", True)
-  
+
 handleRequest _ = return(malformedRequest, True)
-                               
+
 malformedRequest :: JSValue
-malformedRequest = Dic.makeObject 
+malformedRequest = Dic.makeObject
  [(Dic.version, JSString Dic.version01)
- ,(Dic.error, Dic.makeObject 
+ ,(Dic.error, Dic.makeObject
     [(Dic.name, str "MalformedRequest")
     ,(Dic.message, str "Request was not a proper request object.")])]
 
 unknownCommand :: JSValue -> JSValue
-unknownCommand seq_id = Dic.makeObject 
+unknownCommand seq_id = Dic.makeObject
  [(Dic.version, JSString Dic.version01)
  ,(Dic.id, seq_id)
- ,(Dic.error, Dic.makeObject 
+ ,(Dic.error, Dic.makeObject
     [(Dic.name, str "UnknownCommand")
     ,(Dic.message, str "The requested method is not supported.")])]
 
@@ -124,7 +125,7 @@ paramParseError :: JSValue -> String -> JSValue
 paramParseError seq_id msg = Dic.makeObject
  [(Dic.version, JSString Dic.version01)
  ,(Dic.id, seq_id)
- ,(Dic.error, Dic.makeObject 
+ ,(Dic.error, Dic.makeObject
     [(Dic.name, str "ParamParseError")
     ,(Dic.message, str msg)])]
 
@@ -132,7 +133,7 @@ commandExecError :: JSValue -> String -> JSValue
 commandExecError seq_id msg = Dic.makeObject
  [(Dic.version, JSString Dic.version01)
  ,(Dic.id, seq_id)
- ,(Dic.error, Dic.makeObject 
+ ,(Dic.error, Dic.makeObject
     [(Dic.name, str "CommandFailed")
     ,(Dic.message, str msg)])]
 
@@ -143,7 +144,7 @@ allCmds = M.fromList [ (cmdName c, c) | c <- allCommands ]
 
 -- | All Commands supported by this Server.
 allCommands :: [Cmd]
-allCommands = 
+allCommands =
     [ cmdConnectionInfo
     , cmdListSupportedLanguages
     , cmdListSupportedPragmas
@@ -176,11 +177,12 @@ allCommands =
     , cmdTokenAtPoint
     , cmdTokenPreceding
     , cmdTokenTypes
-    , cmdParseCabal 
+    , cmdParseCabal
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
-    , cmdTypeNames
+    -- , cmdTypeNames
+    , cmdNamesInScope
     ]
 
 ------------------------------------------------------------------------------
@@ -193,13 +195,13 @@ handleScionException m = ((((do
    r <- m
    return (Ok r)
   `gcatch` \(e :: SomeScionException) -> return (Error (show e)))
-  `gcatch` \(e' :: GhcException) -> 
+  `gcatch` \(e' :: GhcException) ->
                case e' of
                 Panic _ -> throw e'
                 InstallationError _ -> throw e'
                 Interrupted -> throw e'
                 _ -> return (Error (show e')))
-  `gcatch` \(e :: ExitCode) -> 
+  `gcatch` \(e :: ExitCode) ->
                 -- client code may not exit the server!
                 return (Error (show e)))
   `gcatch` \(e :: IOError) ->
@@ -214,10 +216,10 @@ newtype Pa a = Pa {
    unPa :: JSValue
         -> Either String a
    }
-   
+
 instance Monad Pa where
   return x = Pa $ \_ -> Right x
-  m >>= k = Pa $ \req -> 
+  m >>= k = Pa $ \req ->
             case unPa m req of
               Left err -> Left err
               Right a -> unPa (k a) req
@@ -239,7 +241,7 @@ optArg' :: JSON a => String -> b -> (a -> b) -> (b -> r) -> Pa r
 optArg' name dflt trans f = withReq $ \req ->
     case Dic.lookupKey req (S.pack name) of
       Nothing -> return (f dflt)
-      Just x -> 
+      Just x ->
           case fromJSON x of
             Nothing -> fail $ "could not decode: " ++ name -- ++ " - " ++ n
             Just a -> return (f (trans a))
@@ -272,7 +274,7 @@ literateFlagOpt = optArg' "literate" False decodeBool
 
 -- | Command takes required line and column arguments
 lineColumnArgs :: (Int -> Int -> r) -> Pa r
-lineColumnArgs = reqArg "line" <&> reqArg "column" 
+lineColumnArgs = reqArg "line" <&> reqArg "column"
 
 -- | Combine two arguments.
 --
@@ -397,7 +399,7 @@ instance JSON Location where
       Just [l0,c0,l1,c1] -> return (mkLocation src l0 c0 l1 c1)
       _ -> fail "region"
   fromJSON _ = fail "location"
-                      
+
 instance JSON NominalDiffTime where
   toJSON t = JSNumber (fromRational (toRational t))
   fromJSON (JSNumber  n) = return $ fromRational (toRational n)
@@ -405,7 +407,7 @@ instance JSON NominalDiffTime where
 
 instance JSON OutlineDef where
   toJSON t =
-    Dic.makeObject $ 
+    Dic.makeObject $
       [(Dic.name, str $ case od_name t of
   	                Left n -> showSDocUnqual n
   	                Right s -> s)
@@ -414,7 +416,7 @@ instance JSON OutlineDef where
       ,(Dic.typ, str $ od_type t)]
       ++
       (case od_parentName t of
-  	 Just (n,typ) -> 
+  	 Just (n,typ) ->
              [(Dic.parent, Dic.makeObject [(Dic.name, str $ showSDocUnqual $ n)
                                     ,(Dic.typ, str typ)])]
   	 Nothing -> [])
@@ -426,7 +428,7 @@ cmdListSupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd
   where cmd = return (map S.pack supportedLanguages)
 
 cmdListSupportedPragmas :: Cmd
-cmdListSupportedPragmas = 
+cmdListSupportedPragmas =
     Cmd "list-supported-pragmas" $ noArgs $ return supportedPragmas
 
 supportedPragmas :: [String]
@@ -454,22 +456,22 @@ cmdListCabalComponents =
   where cmd cabal_file = cabalProjectComponents cabal_file
 
 cmdParseCabal :: Cmd
-cmdParseCabal = 
+cmdParseCabal =
     Cmd "parse-cabal" $ reqArg' "cabal-file" S.unpack $ cmd
   where cmd _cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
 
 cmdParseCabalArbitrary :: Cmd
-cmdParseCabalArbitrary = 
+cmdParseCabalArbitrary =
     Cmd "parse-cabal-arbitrary" $ docContentsArg $ cmd
   where cmd cabal_contents = cabalParseArbitrary cabal_contents
-  
+
 cmdCabalDependencies :: Cmd
-cmdCabalDependencies = 
+cmdCabalDependencies =
     Cmd "cabal-dependencies" $ reqArg' "cabal-file" S.unpack $ cmd
   where cmd cabal_file = do
         dep<- cabalDependencies cabal_file
-        return (JSArray $ map (\(x,y)->Dic.makeObject [(S.pack x,JSArray $ map toJSON y)]) dep) 
-  
+        return (JSArray $ map (\(x,y)->Dic.makeObject [(S.pack x,JSArray $ map toJSON y)]) dep)
+
 -- return all cabal configurations.
 -- currently this just globs for * /setup-config
 -- in the future you may write a config file describing the most common configuration settings
@@ -508,14 +510,14 @@ cmdSetGHCVerbosity =
     Cmd "set-ghc-verbosity" $ reqArg "level" $ setGHCVerbosity
 
 cmdBackgroundTypecheckFile :: Cmd
-cmdBackgroundTypecheckFile = 
+cmdBackgroundTypecheckFile =
     Cmd "background-typecheck-file" $ reqArg' "file" S.unpack $ cmd
   where cmd fname = backgroundTypecheckFile fname
 
 cmdBackgroundTypecheckArbitrary :: Cmd
-cmdBackgroundTypecheckArbitrary = 
-    Cmd "background-typecheck-arbitrary" $ 
-        reqArg' "file" S.unpack <&> 
+cmdBackgroundTypecheckArbitrary =
+    Cmd "background-typecheck-arbitrary" $
+        reqArg' "file" S.unpack <&>
         docContentsArg $ cmd
   where cmd fname contents = backgroundTypecheckArbitrary fname contents
 
@@ -523,7 +525,7 @@ cmdForceUnload :: Cmd
 cmdForceUnload = Cmd "force-unload" $ noArgs $ unload
 
 cmdAddCmdLineFlag :: Cmd
-cmdAddCmdLineFlag = 
+cmdAddCmdLineFlag =
     Cmd "add-command-line-flag" $
       optArg' "flag" "" S.unpack <&>
       optArg' "flags" [] (map S.unpack) $ cmd
@@ -544,7 +546,7 @@ cmdThingAtPoint =
              let f=(if typed then (doThingAtPointTyped $ typecheckedSource tcm) else (doThingAtPointUntyped $ renamedSource tcm))
              --tap<- doThingAtPoint loc qual typed tcm (if typed then (typecheckedSource tcm) else (renamedSource tcm))
              tap<-f loc qual tcm
-                --(if typed then (doThingAtPointTyped $ typecheckedSource tcm) 
+                --(if typed then (doThingAtPointTyped $ typecheckedSource tcm)
                -- else doThingAtPointTyped (renamedSource tcm) loc qual tcm
              return $ Just tap
         _ -> return Nothing
@@ -561,7 +563,7 @@ cmdThingAtPoint =
                 case typeOf (x,xs) of
                   Just t ->
                       showSDocForUser unqual
-                        (prettyResult x O.<+> dcolon O.<+> 
+                        (prettyResult x O.<+> dcolon O.<+>
                           pprTypeForUser True t)
                   _ -> showSDocForUser unqual (prettyResult x) --(Just (showSDocDebug (ppr x O.$$ ppr xs )))
     doThingAtPointUntyped :: (Search id a, OutputableBndr id) => a -> SrcSpan -> Bool -> TypecheckedModule  -> ScionM String
@@ -576,8 +578,8 @@ cmdThingAtPoint =
               Just (x,_) ->
                 if qual
                         then showSDocForUser unqual ((qualifiedResult x) O.<+> (O.text $ haddockType x))
-                        else showSDocForUser unqual ((prettyResult x) O.<+> (O.text $ haddockType x))         
-                                
+                        else showSDocForUser unqual ((prettyResult x) O.<+> (O.text $ haddockType x))
+
 cmdToplevelNames :: Cmd
 cmdToplevelNames=
      Cmd "top-level-names" $ noArgs $ cmd
@@ -599,16 +601,16 @@ cmdOutline =
     case tc_res of
       Just m -> do
         let f = if trim then trimLocationFile else id
-        return $ f $ outline root_dir m 
+        return $ f $ outline root_dir m
       _ -> return []
 
 cmdTokens :: Cmd
-cmdTokens = 
+cmdTokens =
      Cmd "tokens" $ docContentsArg cmd
   where cmd contents = do
           root_dir <- projectRootDir
           tokensArbitrary root_dir contents
-          
+
 cmdTokenAtPoint :: Cmd
 cmdTokenAtPoint =
   Cmd "token-at-point" $ cmdArgs tokenAtPoint
@@ -616,19 +618,19 @@ cmdTokenAtPoint =
         tokenAtPoint contents line column literate =
           projectRootDir
           >>= (\rootDir -> tokenArbitraryAtPoint rootDir contents line column literate)
-   
+
 cmdTokenPreceding :: Cmd
 cmdTokenPreceding =
   Cmd "token-preceding" $ cmdArgs tokenPreceding
   where cmdArgs = docContentsArg <&> lineColumnArgs <&> literateFlagOpt
-        -- tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)    
+        -- tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)
         tokenPreceding contents line column literate =
           projectRootDir
           >>= (\rootDir -> tokenArbitraryPreceding rootDir contents line column literate)
 
 cmdTokenTypes :: Cmd
-cmdTokenTypes = 
-     Cmd "token-types" $ docContentsArg <&> literateFlagOpt $ cmd  
+cmdTokenTypes =
+     Cmd "token-types" $ docContentsArg <&> literateFlagOpt $ cmd
   where cmd contents literate= do
           root_dir <- projectRootDir
           tokenTypesArbitrary root_dir contents literate
@@ -642,7 +644,7 @@ cmdTokenTypes =
 
 cmdDumpSources :: Cmd
 cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
-  where 
+  where
     cmd = do
       tc_res <- gets bgTcCache
       case tc_res of
@@ -662,14 +664,14 @@ cmdLoad = Cmd "load" $ reqArg "component" <&>
       loadComponent' comp options
 
 cmdSetVerbosity :: Cmd
-cmdSetVerbosity = 
+cmdSetVerbosity =
     Cmd "set-verbosity" $ reqArg "level" $ cmd
   where cmd v = setVerbosity (intToVerbosity v)
 
 cmdGetVerbosity :: Cmd
 cmdGetVerbosity = Cmd "get-verbosity" $ noArgs $ verbosityToInt <$> getVerbosity
 
--- rename to GetCurrentComponent? 
+-- rename to GetCurrentComponent?
 cmdCurrentComponent :: Cmd
 cmdCurrentComponent = Cmd "current-component" $ noArgs $ getActiveComponent
 
@@ -688,9 +690,9 @@ cmdNameDefinitions =
     Cmd "name-definitions" $ reqArg' "name" S.unpack $ cmd
   where cmd nm = do
           db <- gets defSiteDB
-          let nms=comps nm 
-          return $ map fst 
-                $ filter (\(_,b)->nm == showSDocForUser alwaysQualify (ppr $ getName b)) 
+          let nms=comps nm
+          return $ map fst
+                $ filter (\(_,b)->nm == showSDocForUser alwaysQualify (ppr $ getName b))
                 $ lookupDefSite db (last nms)
         comps                   :: String -> [String]
         comps s                 =  case dropWhile ('.'==) s of
@@ -698,9 +700,9 @@ cmdNameDefinitions =
                                 s' -> w : comps s''
                                       where (w, s'') =
                                              break ('.'==) s'
-                    
 
-                                             
+
+
 cmdIdentify :: Cmd
 cmdIdentify =
     Cmd "client-identify" $ reqArg' "name" S.unpack $ cmd
@@ -725,12 +727,7 @@ cmdModuleGraph =
 
 cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
-  Cmd "dump-name-db" $ noArgs $ cmd
- where
-   cmd = do
-     db <- buildNameDB
-     dumpNameDB db
-     return ()
+  Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
 -- | Get the type names for the current source in the background typecheck cache,
 -- both local and imported from modules.
@@ -759,3 +756,20 @@ cmdTypeNames =
     -- Type name formattter
     formatTyName :: (Outputable e) => Located e -> String
     formatTyName = (showSDocUnqual . ppr . unLoc)
+
+cmdNamesInScope :: Cmd
+cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ cmd
+  where
+    cmd = do
+      tc_res <- gets bgTcCache
+      case tc_res of
+        Just (Typechecked tcm) ->
+          let thisModSum = (pm_mod_summary . tm_parsed_module) tcm
+              thisMod = ms_mod thisModSum
+              innerImports = map unLoc $ ms_imps thisModSum
+              innerModNames = map (unLoc . ideclName) innerImports
+              getInnerModules = mapM (\m -> lookupModule m Nothing) innerModNames
+          in  getInnerModules
+              >>= (\innerMods -> return $ map (showSDoc . pprModule) (thisMod:innerMods))
+        Just (Parsed _) -> return ["!!wombat!!"]
+        Nothing -> return $ [""]
