@@ -73,36 +73,41 @@ handleRequest req@(JSObject _) =
                    params <- Dic.lookupKey req (Dic.params)
                    seq_id <- Dic.lookupKey req (Dic.id)
                    return (method, params, seq_id)
-  in
-  case request of
-    Nothing -> return (malformedRequest, True)
-    Just (method, params, seq_id)
-     | method == Dic.quit -> return (Dic.makeObject
-                             [(Dic.version, JSString $ Dic.version01)
-                             ,(Dic.result, JSNull)
-                             ,(Dic.id, seq_id)], False)
-     | otherwise ->
-      case M.lookup (S.unpack method) allCmds of
-        Nothing -> return (unknownCommand seq_id, True)
-        Just (Cmd _ arg_parser) ->
-          decode_params params arg_parser seq_id
- where
-   decode_params JSNull arg_parser seq_id =
-       decode_params (Dic.makeObject []) arg_parser seq_id
-   decode_params args@(JSObject _) arg_parser seq_id =
-     case unPa arg_parser args of
-       Left err -> return (paramParseError seq_id err, True)
-       Right act -> do
-           r <- handleScionException act
-           case r of
-             Error msg -> return (commandExecError seq_id msg, True)
-             Ok a ->
-                 return (Dic.makeObject
-                    [(Dic.version, str "0.1")
-                    ,(Dic.id, seq_id)
-                    ,(Dic.result, toJSON a)], True)
-   decode_params _ _ seq_id =
-     return (paramParseError seq_id "Params not an object", True)
+
+      decode_params JSNull arg_parser seq_id = decode_params (Dic.makeObject []) arg_parser seq_id
+      decode_params args@(JSObject _) arg_parser seq_id =
+       case unPa arg_parser args of
+         Left err -> return (paramParseError seq_id err, True)
+         Right act -> do
+             r <- handleScionException act
+             case r of
+               Error msg -> return (commandExecError seq_id msg, True)
+               Ok a ->
+                   return (Dic.makeObject
+                      [(Dic.version, str "0.1")
+                      ,(Dic.id, seq_id)
+                      ,(Dic.result, toJSON a)], True)
+
+      decode_params _ _ seq_id = return (paramParseError seq_id "Params not an object", True)
+
+      -- The quit command's reply
+      quitReply seq_id = Dic.makeObject [ (Dic.version
+                                        , JSString Dic.version01)
+                                        , (Dic.result, JSNull)
+                                        , (Dic.id, seq_id)
+                                        ]
+
+      -- The default command dispatcher:
+      dispatch method params seq_id = 
+        if method /= Dic.quit
+          then case M.lookup (S.unpack method) allCmds of
+                Nothing                 -> return (unknownCommand seq_id, True)
+                Just (Cmd _ arg_parser) -> decode_params params arg_parser seq_id
+          else return (quitReply seq_id, False)
+
+  in case request of
+      Nothing                       -> return (malformedRequest, True)
+      Just (method, params, seq_id) -> dispatch method params seq_id
 
 handleRequest _ = return(malformedRequest, True)
 
@@ -181,7 +186,7 @@ allCommands =
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
-    -- , cmdTypeNames
+    , cmdTypeNames
     , cmdNamesInScope
     ]
 
@@ -409,17 +414,17 @@ instance JSON OutlineDef where
   toJSON t =
     Dic.makeObject $
       [(Dic.name, str $ case od_name t of
-  	                Left n -> showSDocUnqual n
-  	                Right s -> s)
+                        Left n -> showSDocUnqual n
+                        Right s -> s)
       ,(Dic.location, toJSON $ od_loc t)
       ,(Dic.block, toJSON $ od_block t)
       ,(Dic.typ, str $ od_type t)]
       ++
       (case od_parentName t of
-  	 Just (n,typ) ->
+         Just (n,typ) ->
              [(Dic.parent, Dic.makeObject [(Dic.name, str $ showSDocUnqual $ n)
                                     ,(Dic.typ, str typ)])]
-  	 Nothing -> [])
+         Nothing -> [])
   fromJSON _ = fail "OutlineDef"
 
 
@@ -735,12 +740,12 @@ cmdTypeNames :: Cmd
 cmdTypeNames =
   Cmd "type-names" $ noArgs $ gets bgTcCache >>= getModuleTypes
   where
-    getModuleTypes (Just (Typechecked tcm)) = return $ localTcmTypes tcm
-    getModuleTypes (Just (Parsed pm)) = return $ localPmTypes pm
-    getModuleTypes Nothing = return [("","")]
+    getModuleTypes Nothing   = return []
+    getModuleTypes tychk     = return $ localTypes tychk
     -- Types local to the current source
-    localTcmTypes tcm = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
-    localPmTypes pm   = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
+    localTypes (Just (Typechecked tcm)) = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
+    localTypes (Just (Parsed pm))       = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
+    localTypes Nothing                  = error "Bad pattern match in cmdTypeNames/localTypes"
     -- Output format is a tuple ("type","module")
     formatInfo modname ty = (formatTyDecl ty, modname)
     -- The stuff you have to go through just to get the module's name... :-)
@@ -760,16 +765,22 @@ cmdTypeNames =
 cmdNamesInScope :: Cmd
 cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ cmd
   where
-    cmd = do
-      tc_res <- gets bgTcCache
-      case tc_res of
-        Just (Typechecked tcm) ->
-          let thisModSum = (pm_mod_summary . tm_parsed_module) tcm
-              thisMod = ms_mod thisModSum
-              innerImports = map unLoc $ ms_imps thisModSum
-              innerModNames = map (unLoc . ideclName) innerImports
-              getInnerModules = mapM (\m -> lookupModule m Nothing) innerModNames
-          in  getInnerModules
-              >>= (\innerMods -> return $ map (showSDoc . pprModule) (thisMod:innerMods))
-        Just (Parsed _) -> return ["!!wombat!!"]
-        Nothing -> return $ [""]
+    cmd = modsM >>= formatMods
+    modsM = gets bgTcCache >>= getModulesForTypecheck
+    formatMods mods = return $ map (showSDoc . pprModule) mods
+
+-- | Get the list of modules associated with the type-checked source
+getModulesForTypecheck :: Maybe BgTcCache       -- ^ The type-checked source
+                      -> ScionM [Module]        -- ^ The list of modules
+
+getModulesForTypecheck (Just (Typechecked tcm)) =
+  let thisModSum      = (pm_mod_summary . tm_parsed_module) tcm
+      thisMod         = ms_mod thisModSum
+      innerImports    = map unLoc $ ms_imps thisModSum
+      innerModNames   = map (unLoc . ideclName) innerImports
+      getInnerModules = mapM (\m -> lookupModule m Nothing) innerModNames
+  in  getInnerModules >>= (\innerMods -> return (thisMod:innerMods))
+
+getModulesForTypecheck (Just (Parsed _)) = return []
+
+getModulesForTypecheck Nothing = return []

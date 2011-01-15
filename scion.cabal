@@ -68,7 +68,7 @@ library
     cpp-options:    -DCABAL_VERSION=108
   else
     build-depends:
-      Cabal        == 1.6.*,
+      Cabal        == 1.6.*
     cpp-options:    -DCABAL_VERSION=106
 
   hs-source-dirs:  lib

@@ -46,6 +46,8 @@ import Control.Applicative
 -- * The Scion Monad and Session State
 
 -- XXX: Can we get rid of some of this maybe stuff?
+-- YYY: Maybe. :-)
+
 data SessionState 
   = SessionState {
       scionVerbosity :: Verbosity,
@@ -121,9 +123,13 @@ instance GhcMonad ScionM where
   getSession = liftScionM getSession
   setSession = liftScionM . setSession
 
-modifySessionState :: (SessionState -> SessionState) -> ScionM ()
+-- | Modify scion's current session state by rewriting the underlying IORef.
+modifySessionState :: (SessionState -> SessionState)  -- ^ Session state modification function
+                   -> ScionM ()                       -- ^ Result
 modifySessionState f =
-    ScionM $ \r -> liftIO $ do s <- readIORef r; writeIORef r $! f s
+    ScionM $ \r -> liftIO $ readIORef r >>= (\s -> writeIORef r $! f s)
+    -- Desugared version is much more succinct.
+    -- Was: liftIO $ do s <- readIORef r; writeIORef r $! f s
 
 getSessionState :: ScionM SessionState
 getSessionState = ScionM $ \s -> liftIO $ readIORef s
