@@ -32,6 +32,7 @@ import Scion.Server.Protocol
 import Scion.Inspect
 import Scion.Inspect.DefinitionSite
 import Scion.Inspect.PackageDB
+import Scion.Inspect.IFaceLoader
 import Scion.Cabal
 import Scion.Ghc hiding ( (<+>) )
 
@@ -763,24 +764,7 @@ cmdTypeNames =
     formatTyName = (showSDocUnqual . ppr . unLoc)
 
 cmdNamesInScope :: Cmd
-cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ cmd
+cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM >>= formatMods
   where
-    cmd = modsM >>= formatMods
     modsM = gets bgTcCache >>= getModulesForTypecheck
-    formatMods mods = return $ map (showSDoc . pprModule) mods
-
--- | Get the list of modules associated with the type-checked source
-getModulesForTypecheck :: Maybe BgTcCache       -- ^ The type-checked source
-                      -> ScionM [Module]        -- ^ The list of modules
-
-getModulesForTypecheck (Just (Typechecked tcm)) =
-  let thisModSum      = (pm_mod_summary . tm_parsed_module) tcm
-      thisMod         = ms_mod thisModSum
-      innerImports    = map unLoc $ ms_imps thisModSum
-      innerModNames   = map (unLoc . ideclName) innerImports
-      getInnerModules = mapM (\m -> lookupModule m Nothing) innerModNames
-  in  getInnerModules >>= (\innerMods -> return (thisMod:innerMods))
-
-getModulesForTypecheck (Just (Parsed _)) = return []
-
-getModulesForTypecheck Nothing = return []
+    formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)

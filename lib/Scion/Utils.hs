@@ -10,20 +10,30 @@
 --
 -- Various utilities.
 --
-module Scion.Utils where
+module Scion.Utils (
+    unqualifiedForModule
+  , ifM
+  , writeSampleConfig
+  ) where
 
 import Scion.Types
 
-import GHC              ( GhcMonad, ModSummary, spans, getLoc, Located
-                        , depanal, topSortModuleGraph, TypecheckedMod
-                        , mkPrintUnqualifiedForModule, moduleInfo )
-import Digraph          ( flattenSCCs )
+import GHC              ( -- GhcMonad, ModSummary, spans, getLoc, Located
+                          -- , depanal, topSortModuleGraph,
+                          TypecheckedMod
+                        , mkPrintUnqualifiedForModule
+                        , moduleInfo )
+-- Redundant import
+-- import Digraph          ( flattenSCCs )
+
 import Outputable
 
-import Control.Monad
+-- Redundant import
+-- import Control.Monad
+
 import Data.Maybe ( fromMaybe )
 
-import Data.Char (isLower, isUpper)
+-- Used by camelCaseMatch: import Data.Char (isLower, isUpper)
 
 import Text.JSON.AttoJSON()
 -- GHC warns that these imports are unused
@@ -36,39 +46,43 @@ import System.IO (openFile, hPutStrLn, hClose, IOMode(..))
 
 --import Data.List (isPrefixOf)
 
-thingsAroundPoint :: (Int, Int) -> [Located n] -> [Located n]
-thingsAroundPoint pt ls = [ l | l <- ls, spans (getLoc l) pt ]
+-- XXX: Apparently unused
+-- thingsAroundPoint :: (Int, Int) -> [Located n] -> [Located n]
+-- thingsAroundPoint pt ls = [ l | l <- ls, spans (getLoc l) pt ]
 
-modulesInDepOrder :: GhcMonad m => m [ModSummary]
-modulesInDepOrder = do
-  gr <- depanal [] False
-  return $ flattenSCCs $ topSortModuleGraph False gr Nothing
+-- XXX: Apparently unused
+-- modulesInDepOrder :: GhcMonad m => m [ModSummary]
+-- modulesInDepOrder = do
+--   gr <- depanal [] False
+--   return $ flattenSCCs $ topSortModuleGraph False gr Nothing
   
+-- XXX: Apparently unused
 -- in dep-order
-foldModSummaries :: GhcMonad m =>
-                    (a -> ModSummary -> m a) -> a
-                 -> m a
-foldModSummaries f seed =
-  modulesInDepOrder >>= foldM f seed
+-- foldModSummaries :: GhcMonad m =>
+--                     (a -> ModSummary -> m a) -> a
+--                  -> m a
+-- foldModSummaries f seed = modulesInDepOrder >>= foldM f seed
 
-
+{- XXX: Apparently unused
+-- | A simple assertion that requires its argument to be a Just data type,
+-- failing hard if Nothing is handed to the function
 expectJust :: String -> Maybe a -> a
 expectJust _ (Just a) = a
 expectJust msg Nothing = 
     dieHard $ "Just x expected.\n  grep for \"" ++ msg ++ "\""
+-}
 
 unqualifiedForModule :: TypecheckedMod m => m -> ScionM PrintUnqualified
 unqualifiedForModule tcm = do
   fromMaybe alwaysQualify `fmap` mkPrintUnqualifiedForModule (moduleInfo tcm)
 
+{- XXX: Apparently unused
 second :: (a -> b) -> (c, a) -> (c, b)
 second f (x,y) = (x, f y)
+-}
 
 ifM :: Monad m => m Bool -> m a -> m a -> m a
-ifM cm tm em = do
-  c <- cm
-  if c then tm else em
-
+ifM cm tm em = cm >>= (\result -> if result then tm else em)
 
 ------------------------------------------------------------------------
 -- JSON helper functions
@@ -83,15 +97,16 @@ ifM cm tm em = do
 -- match pSL putStrLn
 -- match lM liftM
 -- match DS Data.Set
-camelCaseMatch :: String -> String -> Bool
-camelCaseMatch (c:cs) (i:is)
-  | c == i = (camelCaseMatch cs $ dropWhile (\c' -> isLower c' || c' == '.') . dropWhile isUpper $ is)
-          || camelCaseMatch cs is -- to allow siH match simpleHTTP
-  | otherwise = False
-camelCaseMatch [] [] = True
-camelCaseMatch [] _ = False
-camelCaseMatch _ [] = False
 
+-- XXX: This appears to be unused
+-- camelCaseMatch :: String -> String -> Bool
+-- camelCaseMatch (c:cs) (i:is)
+--   | c == i = (camelCaseMatch cs $ dropWhile (\c' -> isLower c' || c' == '.') . dropWhile isUpper $ is)
+--           || camelCaseMatch cs is -- "siH" matches "simpleHTTP"
+--   | otherwise = False
+-- camelCaseMatch [] [] = True
+-- camelCaseMatch [] _ = False
+-- camelCaseMatch _ [] = False
 
 --instance JSON CabalConfiguration where
 --  readJSON (JSObject obj)

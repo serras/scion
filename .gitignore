@@ -9,3 +9,4 @@ TAGS
 config.mk
 *.elc
 scion-*.zip
+scion.lks*

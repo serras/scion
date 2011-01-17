@@ -80,13 +80,11 @@ initialScionDynFlags dflags =
 -- instance.  (You'll get a conflicting instance error, which can only
 -- be resolved by re-starting GHC.)
 resetSessionState :: ScionM ()
-resetSessionState = do
+resetSessionState =
    unload
-
-   dflags0 <- gets initialDynFlags
-   -- TODO: do something with result from setSessionDynFlags?
-   setSessionDynFlags (initialScionDynFlags dflags0)
-   return ()
+   >> gets initialDynFlags
+   >>= (\dflags0 -> setSessionDynFlags (initialScionDynFlags dflags0))
+   >> return ()
 
 -- | Root directory of the current Cabal project.
 --
@@ -157,7 +155,7 @@ loadComponent' comp options = do
    setActiveComponent comp
    -- Need to set DynFlags first, so that the search paths are set up
    -- correctly before looking for the targets.
-   setComponentDynFlags comp
+   _ <- setComponentDynFlags comp
    dflags0 <- getSessionDynFlags
    let dflags1
          | lo_output options = dflags0{ hscTarget = defaultObjectTarget
@@ -169,24 +167,29 @@ loadComponent' comp options = do
    let dflags
         | lo_forcerecomp options=dopt_set dflags1 Opt_ForceRecomp
         | otherwise = dflags1
-   setSessionDynFlags dflags
-   setComponentTargets comp
+   _ <- setSessionDynFlags dflags
+   _ <- setComponentTargets comp
    rslt <- load LoadAllTargets
-   setSessionDynFlags dflags0    -- Remove LinkBinary
+   _ <- setSessionDynFlags dflags0    -- Remove LinkBinary
    getDefSiteDB rslt
    return rslt
    
 -- | Utility method to regenerate defSiteDB after loading.
 getDefSiteDB :: CompilationResult -- ^ The result of loading.
              -> ScionM ()
-getDefSiteDB rslt = do
-   mg <- getModuleGraph
-   base_dir <- projectRootDir
-   db <- moduleGraphDefSiteDB base_dir mg
-   liftIO $ evaluate db
-   modifySessionState $ \s -> s { lastCompResult = rslt
-                                , defSiteDB = db }
-   return ()
+getDefSiteDB rslt =
+  getModuleGraph
+  >>= (\mg ->
+         projectRootDir
+         >>= (\base_dir ->
+                moduleGraphDefSiteDB base_dir mg
+                >>= (\db -> liftIO (evaluate db)
+                             >> modifySessionState (\s -> s { lastCompResult = rslt
+                                                            , defSiteDB = db })
+                             >> return ()
+                     )
+              )
+       )
 
 -- | Make the specified component the active one.  Sets the DynFlags
 --  to those specified for the given component.  Unloads the possible
@@ -264,12 +267,13 @@ load how_much = do
 
 -- | Unload whatever is currently loaded.
 unload :: ScionM ()
-unload = do
+unload =
    setTargets []
-   load LoadAllTargets
-   modifySessionState $ \st -> st { lastCompResult = mempty
-                                  , defSiteDB = mempty }
-   return ()
+   >> load LoadAllTargets
+   >> modifySessionState (\st -> st { lastCompResult = mempty
+                                    , defSiteDB = mempty }
+                         )
+   >> return ()
 
 -- | Parses the list of 'Strings' as command line arguments and sets the
 -- 'DynFlags' accordingly.
@@ -297,7 +301,7 @@ addCmdLineFlags cmdFlags = do
 setGHCVerbosity :: Int -> ScionM ()
 setGHCVerbosity lvl = do
    dflags <- getSessionDynFlags
-   setSessionDynFlags $! dflags { verbosity = lvl }
+   _ <- setSessionDynFlags $! dflags { verbosity = lvl }
    return ()
 
 ------------------------------------------------------------------------------
@@ -390,17 +394,19 @@ backgroundTypecheckFile fname0 = do
                 do
                   tcd_mod <- typecheckModule parsed_mod
                   ds_mod <- desugarModule tcd_mod
-                  loadModule ds_mod -- ensure it's in the HPT
+                  _ <- loadModule ds_mod -- ensure it's in the HPT
                   finish_up (Just (Typechecked tcd_mod)) mempty
 
-   preprocessModule fname = do
+   preprocessModule fname =
      depanal [] True
      -- reload-calculate the ModSummary because it contains the cached
      -- preprocessed source code
-     mb_modsum <- filePathToProjectModule fname
-     case mb_modsum of
-       Nothing -> error "Huh? No modsummary after preprocessing?"
-       Just ms -> return ms
+     >> filePathToProjectModule fname
+     >>= (\mb_modsum ->
+            case mb_modsum of
+              Nothing -> error "Huh? No modsummary after preprocessing?"
+              Just ms -> return ms
+          )
 
 -- | Typechecks a file whose content are given as a string.
 backgroundTypecheckArbitrary:: 

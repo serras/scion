@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE CPP #-}
 -- |
 -- Module      : Scion.Inspect.DefinitionSite
