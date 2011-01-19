@@ -187,7 +187,6 @@ allCommands =
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
-    , cmdTypeNames
     , cmdNamesInScope
     ]
 
@@ -735,36 +734,8 @@ cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
--- | Get the type names for the current source in the background typecheck cache,
--- both local and imported from modules.
-cmdTypeNames :: Cmd
-cmdTypeNames =
-  Cmd "type-names" $ noArgs $ gets bgTcCache >>= getModuleTypes
-  where
-    getModuleTypes Nothing   = return []
-    getModuleTypes tychk     = return $ localTypes tychk
-    -- Types local to the current source
-    localTypes (Just (Typechecked tcm)) = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
-    localTypes (Just (Parsed pm))       = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
-    localTypes Nothing                  = error "Bad pattern match in cmdTypeNames/localTypes"
-    -- Output format is a tuple ("type","module")
-    formatInfo modname ty = (formatTyDecl ty, modname)
-    -- The stuff you have to go through just to get the module's name... :-)
-    getTcmModuleName tcm = (getModuleName . tm_parsed_module) tcm
-    getModuleName pm     = (moduleNameString . moduleName . ms_mod . pm_mod_summary) pm
-    -- Format a type declaration
-    formatTyDecl :: (Outputable t) => TyClDecl t -> String
-    formatTyDecl (TyFamily { tcdLName = name })  = formatTyName name
-    formatTyDecl (TyData { tcdLName = name })    = formatTyName name
-    formatTyDecl (TySynonym { tcdLName = name }) = formatTyName name
-    -- Theoretically, this is never matched
-    formatTyDecl _ = error "Bad filtering in cmdTypeNames"
-    -- Type name formattter
-    formatTyName :: (Outputable e) => Located e -> String
-    formatTyName = (showSDocUnqual . ppr . unLoc)
-
 cmdNamesInScope :: Cmd
-cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM >>= formatMods
+cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM -- >>= formatMods
   where
-    modsM = gets bgTcCache >>= getModulesForTypecheck
-    formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)
+    modsM = gets bgTcCache >>= updateModulesForTypecheck
+    -- formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)

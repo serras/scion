@@ -34,6 +34,7 @@ import qualified Data.MultiSet as MS
 import Distribution.Simple.LocalBuildInfo
 import System.Directory ( setCurrentDirectory, getCurrentDirectory )
 import System.FilePath ( normalise, (</>), dropFileName )
+import System.Time
 import qualified System.Log.Logger as HL
 import Control.Monad ( when )
 import Data.IORef
@@ -73,6 +74,9 @@ data SessionState
 
       defSiteDB :: DefSiteDB,
         -- ^ Source code locations.
+        
+      moduleCache :: ModuleCache,
+        -- ^ Module and name cache to support IDE completions
 
       client :: String
         -- ^ can be set by the client. Only used by vim to enable special hack
@@ -80,7 +84,7 @@ data SessionState
 
 mkSessionState :: DynFlags -> IO (IORef SessionState)
 mkSessionState dflags =
-    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty "")
+    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty emptyModuleCache "")
 
 
 newtype ScionM a
@@ -336,13 +340,11 @@ data ScionProjectConfig = ScionProjectConfig {
   fileComponentExtraFlags :: [FileComponentConfiguration],
   scionDefaultCabalConfig :: Maybe String
   }
+
 emptyScionProjectConfig :: ScionProjectConfig
 emptyScionProjectConfig = ScionProjectConfig [] [] Nothing
 
 ----------------------------------------------------------------------
-
-
-
 -- | Sets the current working directory and notifies GHC about the
 -- change.
 -- 
@@ -397,10 +399,6 @@ instance IsComponent FileComp where
     -- return $ fromMaybe [] $ 
     --   lookup (takeFileName f) [] --(fileComponentExtraFlags config)
 
-
-
-
-
 instance JSON FileComp where
   fromJSON obj@(JSObject _)
     | Just (JSString s) <- Dic.lookupKey obj Dic.file =
@@ -414,8 +412,8 @@ defaultLoadOptions :: LoadOptions
 defaultLoadOptions=LoadOptions False False
 
 data LoadOptions=LoadOptions {
-        lo_output::Bool,
-        lo_forcerecomp::Bool
+        lo_output :: Bool,
+        lo_forcerecomp :: Bool
         }
         deriving (Show,Read)
         
@@ -427,5 +425,29 @@ instance JSON LoadOptions where
    fromJSON j = fail $ "LoadOptions not an object" ++ show j    
    toJSON (LoadOptions ob rb) =
       Dic.makeObject [(Dic.output, JSBool ob),(Dic.forcerecomp, JSBool rb)]    
-        
-        
+
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+-- Module cache
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+
+-- * Module cache and IDE completion
+
+-- | The module cache used to generate IDE completions.
+--
+-- NOTE: System.Time is deprecated, yet System.Directory still uses it.
+
+data ModuleCache =
+  ModuleCache {
+    lastModTime :: IO ClockTime               -- ^ Last modified time for Haskell interface files 
+  , modCache :: M.Map Module ModSymData       -- ^ Stuff stashed in the map over which we can iterate
+  }
+
+emptyModuleCache :: ModuleCache
+emptyModuleCache = 
+  ModuleCache {
+    lastModTime = return (TOD 0 0)
+  , modCache = M.empty
+  }
+
+-- | Module symbol data
+data ModSymData = NothingYet
