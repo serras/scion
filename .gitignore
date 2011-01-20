@@ -10,3 +10,4 @@ config.mk
 *.elc
 scion-*.zip
 scion.lks*
+.DS_Store
