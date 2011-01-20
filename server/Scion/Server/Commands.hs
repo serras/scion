@@ -737,5 +737,5 @@ cmdDumpNameDB =
 cmdNamesInScope :: Cmd
 cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM -- >>= formatMods
   where
-    modsM = gets bgTcCache >>= updateModulesForTypecheck
+    modsM = gets bgTcCache >>= updateModulesCache
     -- formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)

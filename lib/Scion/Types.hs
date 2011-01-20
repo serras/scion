@@ -438,9 +438,11 @@ instance JSON LoadOptions where
 
 data ModuleCache =
   ModuleCache {
-    lastModTime :: IO ClockTime               -- ^ Last modified time for Haskell interface files 
-  , modCache :: M.Map Module ModSymData       -- ^ Stuff stashed in the map over which we can iterate
+    lastModTime :: IO ClockTime       -- ^ Last modified time for Haskell interface files 
+  , modCache :: ModuleCacheData       -- ^ Stuff stashed in the map over which we can iterate
   }
+
+type ModuleCacheData = M.Map Module ModSymData
 
 emptyModuleCache :: ModuleCache
 emptyModuleCache = 
