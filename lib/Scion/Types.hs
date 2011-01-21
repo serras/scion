@@ -23,16 +23,22 @@ import qualified Scion.Types.JSONDictionary as Dic
 
 import GHC
 import HscTypes
+import IfaceSyn
 import MonadUtils ( MonadIO )
 import Exception
 
 import Text.JSON.AttoJSON
 
 import qualified Data.ByteString.Char8 as S
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.MultiSet as MS
+import qualified Data.Sequence as Seq
 import Distribution.Simple.LocalBuildInfo
-import System.Directory ( setCurrentDirectory, getCurrentDirectory )
+import System.Directory
+  ( setCurrentDirectory
+  , getCurrentDirectory
+  , getModificationTime
+  )
 import System.FilePath ( normalise, (</>), dropFileName )
 import System.Time
 import qualified System.Log.Logger as HL
@@ -280,7 +286,7 @@ __ = undefined
 -- should at least remember the 'Unique' in order to quickly look up the
 -- original thing.
 newtype DefSiteDB =
-  DefSiteDB (M.Map String [(Location,TyThing)])
+  DefSiteDB (Map.Map String [(Location,TyThing)])
 
 instance Monoid DefSiteDB where
   mempty = emptyDefSiteDB
@@ -288,22 +294,22 @@ instance Monoid DefSiteDB where
 
 -- | The empty 'DefSiteDB'.
 emptyDefSiteDB :: DefSiteDB
-emptyDefSiteDB = DefSiteDB M.empty
+emptyDefSiteDB = DefSiteDB Map.empty
 
 -- | Combine two 'DefSiteDB's.   XXX: check for duplicates?
 unionDefSiteDB :: DefSiteDB -> DefSiteDB -> DefSiteDB
 unionDefSiteDB (DefSiteDB m1) (DefSiteDB m2) =
-    DefSiteDB (M.unionWith (++) m1 m2)
+    DefSiteDB (Map.unionWith (++) m1 m2)
 
 -- | Return the list of defined names (the domain) of the 'DefSiteDB'.
 -- The result is, in fact, ordered.
 definedNames :: DefSiteDB -> [String]
-definedNames (DefSiteDB m) = M.keys m
+definedNames (DefSiteDB m) = Map.keys m
 
 -- | Returns all the entities that the given name may refer to.
 lookupDefSite :: DefSiteDB -> String -> [(Location, TyThing)]
 lookupDefSite (DefSiteDB m) key =
-  case M.lookup key m of
+  case Map.lookup key m of
     Nothing -> []
     Just xs -> xs
 
@@ -436,20 +442,36 @@ instance JSON LoadOptions where
 --
 -- NOTE: System.Time is deprecated, yet System.Directory still uses it.
 
-data ModuleCache =
-  ModuleCache {
-    lastModTime :: IO ClockTime       -- ^ Last modified time for Haskell interface files 
-  , modCache :: ModuleCacheData       -- ^ Stuff stashed in the map over which we can iterate
+-- | The module cache is a map indexed by modules storing module symbol data extracted from
+-- the Haskell interface file
+type ModuleCache = Map.Map Module ModCacheData
+
+-- | Name to interface declaration sequence association
+data ModCacheData = 
+  ModCacheData {
+    lastModTime :: IO ClockTime   -- ^ Last modified time for Haskell interface files 
+  , modSymData  :: ModSymData     -- ^ Module symbol data
   }
 
-type ModuleCacheData = M.Map Module ModSymData
+-- | Associations between symbol name and Haskell interface data
+type ModSymData = Map.Map String ModSymDecls
+-- | Sequence of interface declarations
+type ModSymDecls = Seq.Seq IfaceDecl
 
 emptyModuleCache :: ModuleCache
-emptyModuleCache = 
-  ModuleCache {
+emptyModuleCache = Map.empty
+
+emptyModCacheData :: ModCacheData
+emptyModCacheData =
+  ModCacheData {
     lastModTime = return (TOD 0 0)
-  , modCache = M.empty
+  , modSymData  = Map.empty
   }
 
--- | Module symbol data
-data ModSymData = NothingYet
+-- | Make a new module cache record
+mkModCacheData :: FilePath -> ModSymData -> ModCacheData
+mkModCacheData fpath msymData =
+  ModCacheData {
+    lastModTime = getModificationTime fpath
+  , modSymData  = msymData
+  }

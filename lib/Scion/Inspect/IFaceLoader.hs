@@ -36,6 +36,8 @@ import LoadIface
 import TcRnTypes
 import TcRnMonad
 import OccName
+import IfaceSyn
+import Fingerprint
 
 -- System imports
 import System.Directory
@@ -48,54 +50,68 @@ type OccNameSet = Set.Set OccName
 updateModulesCache :: Maybe BgTcCache
                    -> ScionM ()
 updateModulesCache tychk =
-  let updater [] cache = return cache
-      updater (m:mods) cache
-        | ignorable m 
-        = modDebugMsg m "Ignoring "
-          >> updater mods cache
-        | Nothing <- Map.lookup m (modCache cache)
-        = modDebugMsg m "Adding   "
-          >> cacheModule m cache
-          >>= (\updCache -> updater mods updCache)
-        | otherwise
-        = ifM (moduleChanged m (lastModTime cache))
-            (modDebugMsg m "Updating "
-              >> cacheModule m cache
-              >>= (\updCache -> updater mods updCache))
-            (modDebugMsg m "NoMod    " >> updater mods cache)
-            
-      -- A module is ignorable if it's part of the main package or it's unknown
-      ignorable m = 
-        let mpkg = modulePackageId m
-        in  mpkg == mainPackageId || mpkg == unknownPackageId
-      -- Predicate for detecting if the module's time/date stamp has changed
-      moduleChanged m modTime = getSession >>= (\hsc -> liftIO (findExactModule hsc m >>= checkMTimes))
-        where
-          -- May return True or False
-          checkMTimes (Found loc _) =
-            modTime
-            >>= (\mcMTime -> getModificationTime (ml_hi_file loc)
-                             >>= (\hiMTime -> return (diffClockTimes mcMTime hiMTime == noTimeDiff)))
-          -- Ensure that we leave the interface file alone if it cannot be found.
-          checkMTimes _ = return False
+  getModulesForTypecheck tychk
+  >>= (\(_, depMods) -> gets moduleCache
+                        >>= (\mc -> updateModules depMods mc
+                                    >>= (\newModCache -> modifySessionState $ updateSessionMCache newModCache)))
+  >> return ()
 
-      -- Process the dependent module list :
-      processModules depmods =
-        gets moduleCache
-        >>= (\mc -> updater depmods mc
-                    >>= (\newModCache -> modifySessionState $ updateSessionMCache newModCache))
+updateModules :: [Module]
+              -> ModuleCache
+              -> ScionM ModuleCache
 
-      -- Install the new module cache in the SessionState record:
-      updateSessionMCache newModCache session = session { moduleCache = newModCache } 
+updateModules [] mCache = return mCache
+updateModules (m:mods) mCache
+  | ignorableMod m 
+  = modDebugMsg m "Ignoring "
+    >> updateModules mods mCache
+  | Nothing <- Map.lookup m mCache
+  = modDebugMsg m "Adding   "
+    >> cacheModule m mCache
+    >>= (\updCache -> updateModules mods updCache)
+  | otherwise
+  = case Map.lookup m mCache of
+      (Just mData) ->
+        ifM (moduleChanged m (lastModTime mData))
+          (modDebugMsg m "Updating "
+            >> cacheModule m mCache
+            >>= (\updCache -> updateModules mods updCache))
+          (modDebugMsg m "NoMod    " >> updateModules mods mCache)
+      Nothing      ->
+          modDebugMsg m "NoMod??! " >> updateModules mods mCache
+      
+-- A module is ignorable if it's part of the main package or it's unknown
+ignorableMod :: Module
+             -> Bool
+ignorableMod m = 
+  let mpkg = modulePackageId m
+  in  mpkg == mainPackageId || mpkg == unknownPackageId
+  
+-- Predicate for detecting if the module's time/date stamp has changed
+moduleChanged :: Module
+              -> IO ClockTime
+              -> ScionM Bool
 
-  in getModulesForTypecheck tychk
-     >>= (\(_, depMods) -> processModules depMods)
-     >> return ()
+moduleChanged m modTime = getSession >>= (\hsc -> liftIO (findExactModule hsc m >>= checkMTimes))
+  where
+    -- May return True or False
+    checkMTimes (Found loc _) =
+      modTime
+      >>= (\mcMTime -> getModificationTime (ml_hi_file loc)
+                       >>= (\hiMTime -> return (diffClockTimes mcMTime hiMTime /= noTimeDiff)))
+    -- Ensure that we leave the interface file alone if it cannot be found.
+    checkMTimes _ = return False
+
+-- Install the new module cache in the SessionState record:
+updateSessionMCache :: ModuleCache
+                    -> SessionState
+                    -> SessionState
+updateSessionMCache newModCache session = session { moduleCache = newModCache } 
 
 -- | Trace actions related to whether we load/ignore/update a Haskell interface
 modDebugMsg :: Module
-         -> String
-         -> ScionM ()
+            -> String
+            -> ScionM ()
 modDebugMsg m msg = liftIO $ logInfo (msg ++ ((moduleNameString . moduleName) m))
 
 -- | General debug messages
@@ -113,32 +129,45 @@ cacheModule m cache =
   getInterfaceFile m
   >>= (\maybeIface ->
         case maybeIface of
-          Just (iface, _) ->
-            extractIfaceDecls iface (modCache cache)
-            >> return cache { modCache = Map.insert m NothingYet (modCache cache) }
-          Nothing         -> modDebugMsg m "Could not load " >> return cache
+          Just (iface, fpath) ->
+            debugExportSet iface
+            >> (return $ Map.insert m (mkModCacheData fpath (collectedDecls iface)) cache)
+          Nothing             ->
+            modDebugMsg m "Could not load " >> return cache
       )
-          
-extractIfaceDecls :: ModIface -> ModuleCacheData -> ScionM ModuleCacheData
-extractIfaceDecls iface mCache =
-  mapM_ showExport (Set.toAscList exportSet) >> return mCache
+      
   where
-    exportSet :: OccNameSet
-    exportSet = collectExportNames (mi_exports iface)
-    showExport eName = liftIO $ putStrLn (occNameString eName)
+    exportSet :: ModIface -> OccNameSet
+    exportSet iface = extractIfaceExports iface
+    collectedDecls :: ModIface -> ModSymData
+    collectedDecls iface = collectExportDecls (exportSet iface) (mi_decls iface)
     
+    -- Debugging stuff
+    debugExportSet iface = mapM_ showExport (Set.toAscList $ exportSet iface)
+    showExport eName = liftIO $ putStrLn (occNameString eName)
+
+extractIfaceExports :: ModIface -> OccNameSet
+extractIfaceExports iface = collect Set.empty (mi_exports iface)
+  where
     -- Collect the exported names as a set, should make filtering the
-    -- decls easier.
-    collectExportNames exports =
-      let -- collect :: OccNameSet -> [IfaceExport] -> OccNameSet
-          collect eSet [] = eSet
-          collect eSet (e:exps) = collect (insertExp eSet e) exps
-          -- insertExp :: OccNameSet -> IfaceExport -> OccNameSet
-          insertExp eSet (_, names) = Set.unions $ map (insertExp' eSet) names
-          -- insertExp' :: OccNameSet -> (GenAvailInfo OccName) -> OccNameSet
-          insertExp' eSet (Avail name) = Set.insert name eSet
-          insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
-      in collect Set.empty exports
+    -- decls easier. Could use Set.unions across all collected sets,
+    -- but makes better sense to pass the accumulated set in a tail-recursive
+    -- function.
+    collect eSet [] = eSet
+    collect eSet ((_, info):exps) = collect (insertExp eSet info) exps
+    -- Same note about accumulation on a tail-recursive function
+    insertExp eSet [] = eSet
+    insertExp eSet (n:names) = insertExp (insertExp' eSet n) names
+    -- insertExp eSet (_, names) = Set.unions $ map (insertExp' eSet) names
+    -- insertExp' :: OccNameSet -> (GenAvailInfo OccName) -> OccNameSet
+    insertExp' eSet (Avail name) = Set.insert name eSet
+    insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
+    
+collectExportDecls :: OccNameSet
+                   -> [(Fingerprint, IfaceDecl)]
+                   -> ModSymData
+
+collectExportDecls eSet decls = Map.empty
     
 -- | Get the list of modules associated with the type-checked source
 getModulesForTypecheck :: Maybe BgTcCache           -- ^ The type-checked source
