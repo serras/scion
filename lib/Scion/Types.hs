@@ -23,17 +23,24 @@ import qualified Scion.Types.JSONDictionary as Dic
 
 import GHC
 import HscTypes
+import IfaceSyn
 import MonadUtils ( MonadIO )
 import Exception
 
 import Text.JSON.AttoJSON
 
 import qualified Data.ByteString.Char8 as S
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.MultiSet as MS
+import qualified Data.Sequence as Seq
 import Distribution.Simple.LocalBuildInfo
-import System.Directory ( setCurrentDirectory, getCurrentDirectory )
+import System.Directory
+  ( setCurrentDirectory
+  , getCurrentDirectory
+  , getModificationTime
+  )
 import System.FilePath ( normalise, (</>), dropFileName )
+import System.Time
 import qualified System.Log.Logger as HL
 import Control.Monad ( when )
 import Data.IORef
@@ -73,6 +80,9 @@ data SessionState
 
       defSiteDB :: DefSiteDB,
         -- ^ Source code locations.
+        
+      moduleCache :: ModuleCache,
+        -- ^ Module and name cache to support IDE completions
 
       client :: String
         -- ^ can be set by the client. Only used by vim to enable special hack
@@ -80,7 +90,7 @@ data SessionState
 
 mkSessionState :: DynFlags -> IO (IORef SessionState)
 mkSessionState dflags =
-    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty "")
+    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty emptyModuleCache "")
 
 
 newtype ScionM a
@@ -276,7 +286,7 @@ __ = undefined
 -- should at least remember the 'Unique' in order to quickly look up the
 -- original thing.
 newtype DefSiteDB =
-  DefSiteDB (M.Map String [(Location,TyThing)])
+  DefSiteDB (Map.Map String [(Location,TyThing)])
 
 instance Monoid DefSiteDB where
   mempty = emptyDefSiteDB
@@ -284,22 +294,22 @@ instance Monoid DefSiteDB where
 
 -- | The empty 'DefSiteDB'.
 emptyDefSiteDB :: DefSiteDB
-emptyDefSiteDB = DefSiteDB M.empty
+emptyDefSiteDB = DefSiteDB Map.empty
 
 -- | Combine two 'DefSiteDB's.   XXX: check for duplicates?
 unionDefSiteDB :: DefSiteDB -> DefSiteDB -> DefSiteDB
 unionDefSiteDB (DefSiteDB m1) (DefSiteDB m2) =
-    DefSiteDB (M.unionWith (++) m1 m2)
+    DefSiteDB (Map.unionWith (++) m1 m2)
 
 -- | Return the list of defined names (the domain) of the 'DefSiteDB'.
 -- The result is, in fact, ordered.
 definedNames :: DefSiteDB -> [String]
-definedNames (DefSiteDB m) = M.keys m
+definedNames (DefSiteDB m) = Map.keys m
 
 -- | Returns all the entities that the given name may refer to.
 lookupDefSite :: DefSiteDB -> String -> [(Location, TyThing)]
 lookupDefSite (DefSiteDB m) key =
-  case M.lookup key m of
+  case Map.lookup key m of
     Nothing -> []
     Just xs -> xs
 
@@ -336,13 +346,11 @@ data ScionProjectConfig = ScionProjectConfig {
   fileComponentExtraFlags :: [FileComponentConfiguration],
   scionDefaultCabalConfig :: Maybe String
   }
+
 emptyScionProjectConfig :: ScionProjectConfig
 emptyScionProjectConfig = ScionProjectConfig [] [] Nothing
 
 ----------------------------------------------------------------------
-
-
-
 -- | Sets the current working directory and notifies GHC about the
 -- change.
 -- 
@@ -397,10 +405,6 @@ instance IsComponent FileComp where
     -- return $ fromMaybe [] $ 
     --   lookup (takeFileName f) [] --(fileComponentExtraFlags config)
 
-
-
-
-
 instance JSON FileComp where
   fromJSON obj@(JSObject _)
     | Just (JSString s) <- Dic.lookupKey obj Dic.file =
@@ -414,8 +418,8 @@ defaultLoadOptions :: LoadOptions
 defaultLoadOptions=LoadOptions False False
 
 data LoadOptions=LoadOptions {
-        lo_output::Bool,
-        lo_forcerecomp::Bool
+        lo_output :: Bool,
+        lo_forcerecomp :: Bool
         }
         deriving (Show,Read)
         
@@ -427,5 +431,47 @@ instance JSON LoadOptions where
    fromJSON j = fail $ "LoadOptions not an object" ++ show j    
    toJSON (LoadOptions ob rb) =
       Dic.makeObject [(Dic.output, JSBool ob),(Dic.forcerecomp, JSBool rb)]    
-        
-        
+
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+-- Module cache
+-- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
+
+-- * Module cache and IDE completion
+
+-- | The module cache used to generate IDE completions.
+--
+-- NOTE: System.Time is deprecated, yet System.Directory still uses it.
+
+-- | The module cache is a map indexed by modules storing module symbol data extracted from
+-- the Haskell interface file
+type ModuleCache = Map.Map Module ModCacheData
+
+-- | Name to interface declaration sequence association
+data ModCacheData = 
+  ModCacheData {
+    lastModTime :: IO ClockTime   -- ^ Last modified time for Haskell interface files 
+  , modSymData  :: ModSymData     -- ^ Module symbol data
+  }
+
+-- | Associations between symbol name and Haskell interface data
+type ModSymData = Map.Map String ModSymDecls
+-- | Sequence of interface declarations
+type ModSymDecls = Seq.Seq IfaceDecl
+
+emptyModuleCache :: ModuleCache
+emptyModuleCache = Map.empty
+
+emptyModCacheData :: ModCacheData
+emptyModCacheData =
+  ModCacheData {
+    lastModTime = return (TOD 0 0)
+  , modSymData  = Map.empty
+  }
+
+-- | Make a new module cache record
+mkModCacheData :: FilePath -> ModSymData -> ModCacheData
+mkModCacheData fpath msymData =
+  ModCacheData {
+    lastModTime = getModificationTime fpath
+  , modSymData  = msymData
+  }
