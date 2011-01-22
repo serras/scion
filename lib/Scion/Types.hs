@@ -26,6 +26,8 @@ import HscTypes
 import IfaceSyn
 import MonadUtils ( MonadIO )
 import Exception
+import Outputable
+import OccName
 
 import Text.JSON.AttoJSON
 
@@ -453,11 +455,30 @@ data ModCacheData =
   , modSymData  :: ModSymData     -- ^ Module symbol data
   }
 
--- | Associations between symbol name and Haskell interface data
+-- | Associations between symbol name and declaration data
 type ModSymData = Map.Map String ModSymDecls
--- | Sequence of interface declarations
-type ModSymDecls = Seq.Seq IfaceDecl
+-- | Sequence of declaration data
+type ModSymDecls = Seq.Seq ModDecl
+-- | Declaration data (note: would have like to use GHC's IfaceDecl here, but need
+-- to extract information inside the IfaceDecl to populate additional 'ModSymData'
+-- associations.)
+data ModDecl =
+    MIdDecl
+  | MTypeDecl  IfaceDecl
+  | MConDecl   IfaceConDecl
+  | MClassDecl IfaceDecl
+  | MClassOp   IfaceClassOp
+  deriving (Show)
+  
+instance Show IfaceDecl where
+  show decl = (showSDoc . ppr) (ifName decl)
 
+instance Show IfaceConDecl where
+  show conDecl = occNameString (ifConOcc conDecl)
+  
+instance Show IfaceClassOp where
+  show (IfaceClassOp name _ _) = occNameString name
+  
 emptyModuleCache :: ModuleCache
 emptyModuleCache = Map.empty
 

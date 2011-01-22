@@ -23,6 +23,9 @@ import Scion.Utils
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Sequence as Seq
+import qualified Data.List as List
+import qualified Data.Foldable as Fold
 
 -- GHC's imports
 import GHC
@@ -42,6 +45,8 @@ import Fingerprint
 -- System imports
 import System.Directory
 import System.Time
+
+import Debug.Trace
 
 -- | Synonym for a set of OccNames
 type OccNameSet = Set.Set OccName
@@ -113,6 +118,127 @@ modDebugMsg :: Module
             -> String
             -> ScionM ()
 modDebugMsg m msg = liftIO $ logInfo (msg ++ ((moduleNameString . moduleName) m))
+
+-- | General debug messages
+debugMsg :: String -> ScionM ()
+debugMsg msg = liftIO $ logInfo msg
+
+-- | Find and load the Haskell interface file, extracting its exports and correlating them
+-- with the declarations. Note that the interface's export list only tells us the names of
+-- things that are exported; we subsequently have to look at the mi_decls list to extract
+-- specifics (Is something a type name or class? Does a constructor have arguments?)
+cacheModule :: Module
+            -> ModuleCache
+            -> ScionM ModuleCache
+cacheModule m cache =
+  getInterfaceFile m
+  >>= (\maybeIface ->
+        case maybeIface of
+          Just (iface, fpath) ->
+            {- Show the exported symbol set 
+            debugExportSet (exportSet iface)
+            >> -}
+            (debugModSymData (exportSet iface) (collectedDecls iface))
+            >> (return $ updatedCache iface fpath)
+          Nothing             ->
+            modDebugMsg m "Could not load " >> return cache
+      )
+      
+  where
+    exportSet :: ModIface -> OccNameSet
+    exportSet iface = extractIfaceExports iface
+    collectedDecls :: ModIface -> ModSymData
+    collectedDecls iface = collectExportDecls (exportSet iface) (mi_decls iface)
+    updatedCache iface fpath = Map.insert m (mkModCacheData fpath (collectedDecls iface)) cache
+
+-- Debugging stuff
+debugExportSet :: OccNameSet -> ScionM ()
+debugExportSet eSet = liftIO $ putStrLn ((List.foldl' showExport "exports [ " (Set.toAscList eSet)) ++ "]")
+  where
+    showExport str eName = str ++ (occNameString eName) ++ " "
+
+debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
+debugModSymData eSet msyms = liftIO $ putStrLn $ matchLengths ++ "\n" ++ modSymDump
+  where
+    matchLengths
+      | Set.size eSet == Map.size msyms
+      = "-- Everything extracted --"
+      | otherwise
+      = let missing = Set.difference (Set.fromList (map occNameString (Set.toList eSet)))
+                                     (Set.fromList $ Map.keys msyms)
+        in  (show $ Set.size eSet) ++ " <> " ++ (show $ Map.size msyms) ++ "\ndifference is " ++ (show missing) ++ "\n"
+    modSymDump = (Fold.foldl' (showModSymData) "" (Map.toList msyms))
+    showModSymData s (name, decls) = s ++ name ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
+    showModDecls s d = s ++ (show d) ++ " "   
+
+extractIfaceExports :: ModIface -> OccNameSet
+extractIfaceExports iface = Fold.foldl' insertExp Set.empty [i | (_, i) <- mi_exports iface]
+  where
+    insertExp eSet names = Fold.foldl' insertExp' eSet names
+    insertExp' eSet (Avail name) = Set.insert name eSet
+    insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
+
+-- | Collect export declarations, filtered by the exported name set.
+collectExportDecls :: OccNameSet                  -- ^ The exported name set
+                   -> [(Fingerprint, IfaceDecl)]  -- ^ The interface file's declarations
+                   -> ModSymData                  -- ^ The collected association between name strings and declaration data
+
+collectExportDecls eSet decls = Fold.foldl' processDecl Map.empty [ d | (_, d) <- decls ]
+  where
+    -- Regular old function or top level identifier
+    processDecl msymMap (IfaceId { ifName = name }) =
+      filterDecl eSet msymMap name MIdDecl
+    -- A 'data' declaration: insert it first, followed by its data type constructors
+    processDecl msymMap sym@(IfaceData { ifName = name }) =
+      let dDecl = filterDecl eSet msymMap name (MTypeDecl sym)
+      in  addDataCons eSet dDecl (ifCons sym)
+    -- A 'newtype' (synonym) declaration
+    processDecl msymMap sym@(IfaceSyn { ifName = name }) =
+      filterDecl eSet msymMap name (MTypeDecl sym)
+    -- A 'class' declaration: insert the class name first, followed by its functions
+    processDecl msymMap sym@(IfaceClass { ifName = name }) =
+      let cDecl = filterDecl eSet msymMap name (MClassDecl sym)
+      in  Fold.foldl' (filterSig eSet) cDecl (ifSigs sym) 
+    processDecl msymMap (IfaceForeign _ _) = msymMap
+
+-- | Process
+filterDecl :: OccNameSet -> ModSymData -> OccName -> ModDecl -> ModSymData
+filterDecl eSet msymMap name sym =
+  let nameStr  = occNameString name
+      symSeq = case Map.lookup nameStr msymMap of
+                (Just msyms) -> msyms Seq.|> sym
+                Nothing      -> Seq.singleton sym
+  in  if Set.member name eSet
+        then Map.insert nameStr symSeq msymMap
+        else msymMap
+
+addDataCons :: OccNameSet -> ModSymData -> IfaceConDecls -> ModSymData
+addDataCons _ msymMap IfAbstractTyCon = trace "IfAbstractTyCon" msymMap
+addDataCons _ msymMap IfOpenDataTyCon = trace "IfOpenDataTyCon" msymMap
+addDataCons eSet msymMap (IfDataTyCon conDecls) = Fold.foldl' (filterCon eSet) msymMap conDecls
+addDataCons eSet msymMap (IfNewTyCon newTyDecl) = filterCon eSet msymMap newTyDecl
+
+filterCon :: OccNameSet -> ModSymData -> IfaceConDecl -> ModSymData
+filterCon eSet msymMap c@(IfCon { ifConOcc = name }) =
+  let nameStr = occNameString name
+      conSym  = MConDecl c
+      symSeq  = case Map.lookup nameStr msymMap of
+                  (Just msyms) -> msyms Seq.|> conSym
+                  Nothing      -> Seq.singleton conSym
+  in  if Set.member name eSet
+        then Map.insert nameStr symSeq msymMap
+        else msymMap
+
+filterSig :: OccNameSet -> ModSymData -> IfaceClassOp -> ModSymData
+filterSig eSet msymMap op@(IfaceClassOp name _ _) =
+  let nameStr = occNameString name
+      sigSym  = MClassOp op 
+      symSeq  = case Map.lookup nameStr msymMap of
+                  (Just msyms) -> msyms Seq.|> sigSym
+                  Nothing      -> Seq.singleton sigSym
+  in  if Set.member name eSet
+        then Map.insert nameStr symSeq msymMap
+        else msymMap
 
 -- | General debug messages
 debugMsg :: String -> ScionM ()
