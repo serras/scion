@@ -49,14 +49,18 @@ import System.Time
 
 -- | Synonym for a set of OccNames
 type OccNameSet = Set.Set OccName
--- | A Module set so we can keep track of modules already read and avoid infinite cycles
+-- | A Module set that tracks modules already read and avoid infinite interface read cycles
 type ModulesRead = Set.Set Module
+-- | Modules that are hidden or had IO errors.
+type ModErrorSet = Set.Set ModuleName
 -- | State we drag along while we're reading interfaces
 data ModStateT =
   ModStateT {
       modsRead   :: ModulesRead
     , exportSyms :: OccNameSet
     , modSyms    :: ModSymData
+    , hiddenMods :: ModErrorSet
+    , otherMods  :: ModErrorSet
     }
 
 -- | Update the cached modules
@@ -88,7 +92,7 @@ updateModules (m:mods) mCache
         ifM (moduleChanged m (lastModTime mData))
           (modDebugMsg m "Updating "
             >> cacheModule m mCache
-            >>= (\updCache -> updateModules mods updCache))
+            >>= updateModules mods)
           (modDebugMsg m "NoMod    " >> updateModules mods mCache)
       Nothing      ->
           modDebugMsg m "NoMod??! " >> updateModules mods mCache
@@ -126,7 +130,7 @@ updateSessionMCache newModCache session = session { moduleCache = newModCache }
 modDebugMsg :: Module
             -> String
             -> ScionM ()
-modDebugMsg m msg = message Normal (msg ++ ((moduleNameString . moduleName) m))
+modDebugMsg m msg = message Verbose (msg ++ ((moduleNameString . moduleName) m))
 
 -- | Find and load the Haskell interface file, extracting its exports and correlating them
 -- with the declarations. Note that the interface's export list only tells us the names of
@@ -146,18 +150,37 @@ cacheModule m cache = getInterfaceFile m >>= updateCache
                                   modsRead   = Set.singleton m
                                 , exportSyms = eSet
                                 , modSyms    = Map.empty
+                                , hiddenMods = Set.empty
+                                , otherMods  = Set.empty
                                 }
           in  collectInterface initialMState maybeIface
               >>= (\mstate ->
                     let updMSyms = modSyms mstate
                     in  (debugModSymData (exportSyms mstate) updMSyms)
+                        >> (reportProblems mstate)
                         >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
         Nothing             ->
           modDebugMsg m "Could not load " >> return cache
 
     exportSet :: ModIface -> OccNameSet
     exportSet iface = extractIfaceExports iface
+    
+    reportProblems :: ModStateT -> ScionM ()
+    reportProblems mstate =
+      if {- not (Set.null (hiddenMods mstate)) || -} 
+        not (Set.null (otherMods mstate))
+        || not (Set.null (exportSyms mstate))
+          then (liftIO $ logWarn $ (moduleNameString (moduleName m)) ++ " module cache:")
+               {- >> listProblems "-- Hidden modules: " (modNameList (hiddenMods mstate)) -}
+               >> listProblems "-- Unreadable modules: " (modNameList (otherMods mstate))
+               >> listProblems "-- Symbols not cached: " (occNameList (exportSyms mstate))
+          else return ()
 
+    listProblems title (mn:mns) = liftIO $ logWarn $ title ++ (Fold.foldl' (\acc s -> acc ++ ", " ++ s) mn mns)
+    listProblems _     []       = return ()
+    modNameList modnames = [ moduleNameString mn | mn <- Set.toList modnames ]
+    occNameList occNames = [ occNameString o | o <- Set.toList occNames ]    
+      
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
 collectUsageDecls :: ModStateT -> Usage -> ScionM ModStateT
 collectUsageDecls mstate (UsagePackageModule usedMod _)  =
@@ -170,6 +193,20 @@ collectUsageDecls mstate (UsagePackageModule usedMod _)  =
     
 collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
   let mods = modsRead mstate
+      addHiddenMod theMod
+        | not (Set.member theMod (hiddenMods mstate))
+        = return mstate {
+                  hiddenMods = Set.insert theMod (hiddenMods mstate)
+                }
+        | otherwise
+        = return mstate
+      addOtherMod theMod
+        | not (Set.member theMod (otherMods mstate))
+        = return mstate {
+                  hiddenMods = Set.insert theMod (otherMods mstate)
+                }
+        | otherwise
+        = return mstate
   in  if not (Set.null (exportSyms mstate))
         then gcatch (gcatch (lookupModule usedMod Nothing
                              >>= (\m -> if Set.notMember m mods
@@ -180,22 +217,20 @@ collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
                                           else return mstate)
                             )
                             -- We can also get a SourceError if GHC can't find the module
-                            (\(serr :: SourceError) -> (message Verbose (show serr))
-                                                       >> return mstate)
+                            (\(_ :: SourceError) -> addHiddenMod usedMod)
                     )
                     -- If module is hidden, we get an IOError exception
-                    (\(ioerr :: IOError) -> (message Verbose (show ioerr))
-                                            >> return mstate)
+                    (\(_ :: IOError) -> addOtherMod usedMod)
         else return mstate
 
 -- | The basic Haskell interface collector driver.
 collectInterface :: ModStateT -> Maybe (ModIface, FilePath) -> ScionM ModStateT
-collectInterface occMSymsTuple maybeIface =
+collectInterface mstate maybeIface =
     case maybeIface of
       Just (iface, _) ->
-        let updOccMSymsTuple = collectExportDecls occMSymsTuple (mi_decls iface)
-        in  Fold.foldlM collectUsageDecls updOccMSymsTuple (mi_usages iface)
-      Nothing         -> return occMSymsTuple
+        let updMState = collectExportDecls mstate (mi_decls iface)
+        in  Fold.foldlM collectUsageDecls updMState (mi_usages iface)
+      Nothing         -> return mstate
 
 debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
