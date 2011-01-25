@@ -56,7 +56,7 @@ data ModStateT =
   ModStateT {
       modsRead   :: ModulesRead
     , exportSyms :: OccNameSet
-    , modsyms    :: ModSymData
+    , modSyms    :: ModSymData
     }
 
 -- | Update the cached modules
@@ -145,11 +145,11 @@ cacheModule m cache = getInterfaceFile m >>= updateCache
               initialMState = ModStateT {
                                   modsRead   = Set.singleton m
                                 , exportSyms = eSet
-                                , modsyms    = Map.empty
+                                , modSyms    = Map.empty
                                 }
           in  collectInterface initialMState maybeIface
               >>= (\mstate ->
-                    let updMSyms = modsyms mstate
+                    let updMSyms = modSyms mstate
                     in  (debugModSymData (exportSyms mstate) updMSyms)
                         >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
         Nothing             ->
@@ -250,14 +250,14 @@ filterDecl :: ModStateT -> OccName -> ModDecl -> ModStateT
 filterDecl mstate name sym =
   let nameStr  = occNameString name
       eSet     = exportSyms mstate
-      msymMap  = modsyms mstate
+      msymMap  = modSyms mstate
       symSeq = case Map.lookup nameStr msymMap of
                 (Just msyms) -> msyms Seq.|> sym
                 Nothing      -> Seq.singleton sym
   in  if Set.member name eSet
         then mstate {
                 exportSyms = Set.delete name eSet
-              , modsyms    = Map.insert nameStr symSeq msymMap
+              , modSyms    = Map.insert nameStr symSeq msymMap
               }
         else mstate
 
@@ -271,7 +271,7 @@ filterCon :: ModStateT -> IfaceConDecl -> ModStateT
 filterCon mstate c@(IfCon { ifConOcc = name }) =
   let nameStr = occNameString name
       eSet    = exportSyms mstate
-      msymMap = modsyms mstate
+      msymMap = modSyms mstate
       conSym  = MConDecl c
       symSeq  = case Map.lookup nameStr msymMap of
                   (Just msyms) -> msyms Seq.|> conSym
@@ -279,14 +279,14 @@ filterCon mstate c@(IfCon { ifConOcc = name }) =
   in  if Set.member name eSet
         then mstate {
             exportSyms = Set.delete name eSet
-          , modsyms    = Map.insert nameStr symSeq msymMap
+          , modSyms    = Map.insert nameStr symSeq msymMap
           }
         else mstate
 
 filterSig :: ModStateT -> IfaceClassOp -> ModStateT
 filterSig mstate op@(IfaceClassOp name _ _) =
   let nameStr = occNameString name
-      msymMap = modsyms mstate
+      msymMap = modSyms mstate
       eSet    = exportSyms mstate
       sigSym  = MClassOp op 
       symSeq  = case Map.lookup nameStr msymMap of
@@ -295,7 +295,7 @@ filterSig mstate op@(IfaceClassOp name _ _) =
   in  if Set.member name eSet
         then mstate {
                 exportSyms = Set.delete name eSet
-              , modsyms = Map.insert nameStr symSeq msymMap
+              , modSyms = Map.insert nameStr symSeq msymMap
               }
         else mstate
 
