@@ -197,9 +197,11 @@ message v s = do
 log :: HL.Priority -> String -> IO()
 log = HL.logM __FILE__
 
-logInfo, logDebug :: String -> IO()
+logInfo, logDebug, logWarn, logError :: String -> IO()
 logInfo = log HL.INFO
 logDebug = log HL.DEBUG
+logWarn = log HL.WARNING
+logError = log HL.ERROR
 
 ------------------------------------------------------------------------
 -- * Reflection into IO
@@ -470,15 +472,6 @@ data ModDecl =
   | MClassOp   IfaceClassOp
   deriving (Show)
   
-instance Show IfaceDecl where
-  show decl = (showSDoc . ppr) (ifName decl)
-
-instance Show IfaceConDecl where
-  show conDecl = occNameString (ifConOcc conDecl)
-  
-instance Show IfaceClassOp where
-  show (IfaceClassOp name _ _) = occNameString name
-  
 emptyModuleCache :: ModuleCache
 emptyModuleCache = Map.empty
 
@@ -496,3 +489,12 @@ mkModCacheData fpath msymData =
     lastModTime = getModificationTime fpath
   , modSymData  = msymData
   }
+
+instance Show IfaceDecl where
+  show decl = (showSDoc . ppr) (ifName decl)
+
+instance Show IfaceConDecl where
+  show conDecl = occNameString (ifConOcc conDecl)
+  
+instance Show IfaceClassOp where
+  show (IfaceClassOp name _ _) = occNameString name
