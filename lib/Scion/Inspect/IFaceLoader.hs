@@ -49,11 +49,15 @@ import System.Time
 
 -- | Synonym for a set of OccNames
 type OccNameSet = Set.Set OccName
--- | Synonym for a set of Modules, so we can keep track of modules already read
--- and avoid infinite cycles
+-- | A Module set so we can keep track of modules already read and avoid infinite cycles
 type ModulesRead = Set.Set Module
--- | Frequently used enough to deserve its own synonym
-type OccModSymT = (ModulesRead, OccNameSet, ModSymData)
+-- | State we drag along while we're reading interfaces
+data ModStateT =
+  ModStateT {
+      modsRead   :: ModulesRead
+    , exportSyms :: OccNameSet
+    , modsyms    :: ModSymData
+    }
 
 -- | Update the cached modules
 updateModulesCache :: Maybe BgTcCache
@@ -138,9 +142,16 @@ cacheModule m cache = getInterfaceFile m >>= updateCache
       case maybeIface of
         Just (iface, fpath) ->
           let eSet = exportSet iface
-          in  collectInterface (Set.singleton m, eSet, Map.empty) maybeIface
-              >>= (\(_, _, updMSyms) -> (debugModSymData eSet updMSyms)
-                                     >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
+              initialMState = ModStateT {
+                                  modsRead   = Set.singleton m
+                                , exportSyms = eSet
+                                , modsyms    = Map.empty
+                                }
+          in  collectInterface initialMState maybeIface
+              >>= (\mstate ->
+                    let updMSyms = modsyms mstate
+                    in  (debugModSymData (exportSyms mstate) updMSyms)
+                        >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
         Nothing             ->
           modDebugMsg m "Could not load " >> return cache
 
@@ -148,33 +159,37 @@ cacheModule m cache = getInterfaceFile m >>= updateCache
     exportSet iface = extractIfaceExports iface
 
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
-collectUsageDecls :: OccModSymT -> Usage -> ScionM OccModSymT
-collectUsageDecls occMSymsTuple@(mods, eSet, modsyms) (UsagePackageModule usedMod _)  =
-  if (Set.notMember usedMod mods) && not (Set.null eSet)
-    then getInterfaceFile usedMod
-         >>= collectInterface (Set.insert usedMod mods, eSet, modsyms)
-    else return occMSymsTuple
+collectUsageDecls :: ModStateT -> Usage -> ScionM ModStateT
+collectUsageDecls mstate (UsagePackageModule usedMod _)  =
+  let eSet = exportSyms mstate
+      mods = modsRead mstate
+  in  if (Set.notMember usedMod mods) && not (Set.null eSet)
+        then getInterfaceFile usedMod
+             >>= collectInterface mstate
+        else return mstate
     
-collectUsageDecls occMSymsTuple@(mods, eSet, modsyms) (UsageHomeModule usedMod _ _ _) =
-  if not (Set.null eSet)
-    then gcatch (gcatch (lookupModule usedMod Nothing
-                         >>= (\m -> if Set.notMember m mods
-                                      then getInterfaceFile m
-                                           >>= collectInterface (Set.insert m mods, eSet, modsyms)
-                                      else return occMSymsTuple)
-                        )
-                        -- We can also get a SourceError if GHC can't find the module
-                        (\(serr :: SourceError) -> (message Verbose (show serr))
-                                                   >> return occMSymsTuple)
-                )
-                -- If module is hidden, we get an IOError exception
-                (\(ioerr :: IOError) -> (message Verbose (show ioerr))
-                                        >> return occMSymsTuple)
-    else return occMSymsTuple
-  where
+collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
+  let mods = modsRead mstate
+  in  if not (Set.null (exportSyms mstate))
+        then gcatch (gcatch (lookupModule usedMod Nothing
+                             >>= (\m -> if Set.notMember m mods
+                                          then getInterfaceFile m
+                                               >>= collectInterface mstate {
+                                                                      modsRead = Set.insert m mods
+                                                                    }
+                                          else return mstate)
+                            )
+                            -- We can also get a SourceError if GHC can't find the module
+                            (\(serr :: SourceError) -> (message Verbose (show serr))
+                                                       >> return mstate)
+                    )
+                    -- If module is hidden, we get an IOError exception
+                    (\(ioerr :: IOError) -> (message Verbose (show ioerr))
+                                            >> return mstate)
+        else return mstate
 
 -- | The basic Haskell interface collector driver.
-collectInterface :: OccModSymT -> Maybe (ModIface, FilePath) -> ScionM OccModSymT
+collectInterface :: ModStateT -> Maybe (ModIface, FilePath) -> ScionM ModStateT
 collectInterface occMSymsTuple maybeIface =
     case maybeIface of
       Just (iface, _) ->
@@ -185,13 +200,13 @@ collectInterface occMSymsTuple maybeIface =
 debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
   where
+    missing = Set.difference (Set.fromList (map occNameString (Set.toList eSet)))
+                                           (Set.fromList $ Map.keys msyms)
     matchLengths
-      | (Set.fromList (map occNameString (Set.toList eSet))) == Map.keysSet msyms
+      | Set.null missing
       = "-- Everything extracted --"
       | otherwise
-      = let missing = Set.difference (Set.fromList (map occNameString (Set.toList eSet)))
-                                     (Set.fromList $ Map.keys msyms)
-        in  (show $ Set.size eSet) ++ " <> " ++ (show $ Map.size msyms) ++ "\ndifference is " ++ (show missing) ++ "\n"
+      = (show $ Set.size eSet) ++ " <> " ++ (show $ Map.size msyms) ++ "\ndifference is " ++ (show missing) ++ "\n"
     modSymDump = (Fold.foldl' (showModSymData) "" (Map.toList msyms))
     showModSymData s (name, decls) = s ++ name ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
     showModDecls s d = s ++ (show d) ++ " "   
@@ -206,13 +221,13 @@ extractIfaceExports iface = Fold.foldl' insertExp Set.empty [i | (_, i) <- mi_ex
     insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
 
 -- | Collect export declarations, filtered by the exported name set.
-collectExportDecls :: OccModSymT    -- ^ The exported name set
+collectExportDecls :: ModStateT    -- ^ The exported name set
                    -> [(Fingerprint, IfaceDecl)]  -- ^ The interface file's declarations
-                   -> OccModSymT    -- ^ The collected association between name strings and declaration data
+                   -> ModStateT    -- ^ The collected association between name strings and declaration data
 
 collectExportDecls inOccMSyms decls = Fold.foldl' processDecl inOccMSyms [ d | (_, d) <- decls ]
   where
-    processDecl :: OccModSymT -> IfaceDecl -> OccModSymT
+    processDecl :: ModStateT -> IfaceDecl -> ModStateT
     -- Regular old function or top level identifier
     processDecl occMSymTuple (IfaceId { ifName = name }) =
       filterDecl occMSymTuple name MIdDecl
@@ -231,43 +246,58 @@ collectExportDecls inOccMSyms decls = Fold.foldl' processDecl inOccMSyms [ d | (
     processDecl occMSymTuple (IfaceForeign _ _) = occMSymTuple
 
 -- | Process
-filterDecl :: OccModSymT -> OccName -> ModDecl -> OccModSymT
-filterDecl (mods, eSet, msymMap) name sym =
+filterDecl :: ModStateT -> OccName -> ModDecl -> ModStateT
+filterDecl mstate name sym =
   let nameStr  = occNameString name
+      eSet     = exportSyms mstate
+      msymMap  = modsyms mstate
       symSeq = case Map.lookup nameStr msymMap of
                 (Just msyms) -> msyms Seq.|> sym
                 Nothing      -> Seq.singleton sym
   in  if Set.member name eSet
-        then (mods, Set.delete name eSet, Map.insert nameStr symSeq msymMap)
-        else (mods, eSet, msymMap)
+        then mstate {
+                exportSyms = Set.delete name eSet
+              , modsyms    = Map.insert nameStr symSeq msymMap
+              }
+        else mstate
 
-addDataCons :: OccModSymT -> IfaceConDecls -> OccModSymT
+addDataCons :: ModStateT -> IfaceConDecls -> ModStateT
 addDataCons occMSymTuple IfAbstractTyCon = occMSymTuple
 addDataCons occMSymTuple IfOpenDataTyCon = occMSymTuple
 addDataCons occMSymTuple (IfDataTyCon conDecls) = Fold.foldl' filterCon occMSymTuple conDecls
 addDataCons occMSymTuple (IfNewTyCon newTyDecl) =             filterCon occMSymTuple newTyDecl
 
-filterCon :: OccModSymT -> IfaceConDecl -> OccModSymT
-filterCon (mods, eSet, msymMap) c@(IfCon { ifConOcc = name }) =
+filterCon :: ModStateT -> IfaceConDecl -> ModStateT
+filterCon mstate c@(IfCon { ifConOcc = name }) =
   let nameStr = occNameString name
+      eSet    = exportSyms mstate
+      msymMap = modsyms mstate
       conSym  = MConDecl c
       symSeq  = case Map.lookup nameStr msymMap of
                   (Just msyms) -> msyms Seq.|> conSym
                   Nothing      -> Seq.singleton conSym
   in  if Set.member name eSet
-        then (mods, Set.delete name eSet, Map.insert nameStr symSeq msymMap)
-        else (mods, eSet, msymMap)
+        then mstate {
+            exportSyms = Set.delete name eSet
+          , modsyms    = Map.insert nameStr symSeq msymMap
+          }
+        else mstate
 
-filterSig :: OccModSymT -> IfaceClassOp -> OccModSymT
-filterSig (mods, eSet, msymMap) op@(IfaceClassOp name _ _) =
+filterSig :: ModStateT -> IfaceClassOp -> ModStateT
+filterSig mstate op@(IfaceClassOp name _ _) =
   let nameStr = occNameString name
+      msymMap = modsyms mstate
+      eSet    = exportSyms mstate
       sigSym  = MClassOp op 
       symSeq  = case Map.lookup nameStr msymMap of
                   (Just msyms) -> msyms Seq.|> sigSym
                   Nothing      -> Seq.singleton sigSym
   in  if Set.member name eSet
-        then (mods, Set.delete name eSet, Map.insert nameStr symSeq msymMap)
-        else (mods, eSet, msymMap)
+        then mstate {
+                exportSyms = Set.delete name eSet
+              , modsyms = Map.insert nameStr symSeq msymMap
+              }
+        else mstate
 
 -- | Get the list of modules associated with the type-checked source
 getModulesForTypecheck :: Maybe BgTcCache           -- ^ The type-checked source
