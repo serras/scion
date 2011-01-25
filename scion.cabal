@@ -111,7 +111,7 @@ library
     cpp-options:  -DWPINLINE -DGHC_VERSION=612
     ghc-options:  -fno-warn-unused-do-bind
 
-  other-modules: Scion.Types.JSONDictionary
+  other-modules: Scion.Types.JSONDictionary, Scion.Inspect.Completions
 
 executable scion-server
   if !flag(server)
@@ -175,7 +175,7 @@ executable scion-server
    Scion.Server.Generic,
    Scion.Server.Protocol,
    Scion.Packages,
-   Scion.Types.JSONDictionary
+   Scion.Types.JSONDictionary, Scion.Inspect.Completions
                  
   ghc-options: -Wall -fno-warn-unused-do-bind
   extensions:      CPP, PatternGuards, DeriveDataTypeable, OverlappingInstances, IncoherentInstances, FlexibleInstances, UndecidableInstances, TypeSynonymInstances
@@ -256,7 +256,7 @@ executable scion-test
     Test.Utils,
     Test.GHC.Gen,
     Test.CabalTest,
-    Test.InspectTest
+    Test.InspectTest, Scion.Inspect.Completions
 
   cpp-options:   -DSCION_DEBUG
 
