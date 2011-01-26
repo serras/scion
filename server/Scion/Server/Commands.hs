@@ -47,7 +47,7 @@ import Data.List ( nub )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )
 import Text.JSON.AttoJSON (JSON,JSValue(..),fromJSON,toJSON)
-import qualified Data.ByteString.Char8 as S
+import qualified Data.ByteString.UTF8 as S
 import qualified Data.Map as M
 import qualified Data.MultiSet as MS
 
@@ -235,7 +235,7 @@ withReq f = Pa $ \req -> unPa (f req) req
 
 reqArg' :: JSON a => String -> (a -> b) -> (b -> r) -> Pa r
 reqArg' name trans f = withReq $ \req ->
-    case Dic.lookupKey req (S.pack name) of
+    case Dic.lookupKey req (S.fromString name) of
       Nothing -> fail $ "required arg missing: " ++ name
       Just x ->
           case fromJSON x of
@@ -244,7 +244,7 @@ reqArg' name trans f = withReq $ \req ->
 
 optArg' :: JSON a => String -> b -> (a -> b) -> (b -> r) -> Pa r
 optArg' name dflt trans f = withReq $ \req ->
-    case Dic.lookupKey req (S.pack name) of
+    case Dic.lookupKey req (S.fromString name) of
       Nothing -> return (f dflt)
       Just x ->
           case fromJSON x of
@@ -271,7 +271,7 @@ fileNameArg = reqArg "file"
 
 -- | Command takes a document argument
 docContentsArg :: (String -> r) -> Pa r
-docContentsArg = reqArg' "contents" S.unpack
+docContentsArg = reqArg' "contents" S.toString
 
 -- | Command takes an optional literate Haskell flag
 literateFlagOpt :: (Bool -> r) -> Pa r
@@ -315,8 +315,8 @@ decodeBool _ = error "no bool"
 {- Unused at the moment
 decodeExtraArgs :: JSValue -> [String]
 decodeExtraArgs JSNull         = []
-decodeExtraArgs (JSString s)   = words (S.unpack s) -- TODO: check shell-escaping
-decodeExtraArgs (JSArray arr)  = [ S.unpack s | JSString s <- arr ]
+decodeExtraArgs (JSString s)   = words (S.toString s) -- TODO: check shell-escaping
+decodeExtraArgs (JSArray arr)  = [ S.toString s | JSString s <- arr ]
 decodeExtraArgs (JSBool b)     = [ (show b) ]
 decodeExtraArgs (JSNumber b)   = [ (show b) ]
 decodeExtraArgs (JSObject _)   = undefined -}
@@ -351,12 +351,12 @@ instance JSON Note where
   toJSON (Note note_kind loc msg) =
     Dic.makeObject [(Dic.kind, toJSON note_kind)
                ,(Dic.location, toJSON loc)
-               ,(Dic.message, JSString (S.pack msg))]
+               ,(Dic.message, JSString (S.fromString msg))]
   fromJSON obj@(JSObject _) = do
     note_kind <- fromJSON =<< Dic.lookupKey obj Dic.kind
     loc <- fromJSON =<< Dic.lookupKey obj Dic.location
     JSString s <- Dic.lookupKey obj Dic.message
-    return (Note note_kind loc (S.unpack s))
+    return (Note note_kind loc (S.toString s))
   fromJSON _ = fail "note"
 
 instance (JSON a, JSON b)=> JSON (Either a b) where
@@ -370,7 +370,7 @@ instance (JSON a, JSON b)=> JSON (Either a b) where
 --        fromJSON _ = fail "Maybe"
 
 str :: String -> JSValue
-str = JSString . S.pack
+str = JSString . S.fromString
 
 instance JSON NoteKind where
   toJSON ErrorNote   = JSString Dic.error
@@ -395,10 +395,10 @@ instance JSON Location where
                ,(Dic.region, JSArray (map toJSON [l0,c0,l1,c1]))]
   fromJSON obj@(JSObject _) = do
     src <- (do JSString f <- Dic.lookupKey obj Dic.file
-               return (FileSrc (mkAbsFilePath "/" (S.unpack f))))
+               return (FileSrc (mkAbsFilePath "/" (S.toString f))))
            <|>
            (do JSString s <- Dic.lookupKey obj Dic.other
-               return (OtherSrc (S.unpack s)))
+               return (OtherSrc (S.toString s)))
     JSArray ls <- Dic.lookupKey obj Dic.region
     case mapM fromJSON ls of
       Just [l0,c0,l1,c1] -> return (mkLocation src l0 c0 l1 c1)
@@ -430,7 +430,7 @@ instance JSON OutlineDef where
 
 cmdListSupportedLanguages :: Cmd
 cmdListSupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd
-  where cmd = return (map S.pack supportedLanguages)
+  where cmd = return (map S.fromString supportedLanguages)
 
 cmdListSupportedPragmas :: Cmd
 cmdListSupportedPragmas =
@@ -457,12 +457,12 @@ cmdListRdrNamesInScope =
 
 cmdListCabalComponents :: Cmd
 cmdListCabalComponents =
-    Cmd "list-cabal-components" $ reqArg' "cabal-file" S.unpack $ cmd
+    Cmd "list-cabal-components" $ reqArg' "cabal-file" S.toString $ cmd
   where cmd cabal_file = cabalProjectComponents cabal_file
 
 cmdParseCabal :: Cmd
-cmdParseCabal =
-    Cmd "parse-cabal" $ reqArg' "cabal-file" S.unpack $ cmd
+cmdParseCabal = 
+    Cmd "parse-cabal" $ reqArg' "cabal-file" S.toString $ cmd
   where cmd _cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
 
 cmdParseCabalArbitrary :: Cmd
@@ -471,19 +471,19 @@ cmdParseCabalArbitrary =
   where cmd cabal_contents = cabalParseArbitrary cabal_contents
 
 cmdCabalDependencies :: Cmd
-cmdCabalDependencies =
-    Cmd "cabal-dependencies" $ reqArg' "cabal-file" S.unpack $ cmd
+cmdCabalDependencies = 
+    Cmd "cabal-dependencies" $ reqArg' "cabal-file" S.toString $ cmd
   where cmd cabal_file = do
         dep<- cabalDependencies cabal_file
-        return (JSArray $ map (\(x,y)->Dic.makeObject [(S.pack x,JSArray $ map toJSON y)]) dep)
-
+        return (JSArray $ map (\(x,y)->Dic.makeObject [(S.fromString x,JSArray $ map toJSON y)]) dep) 
+  
 -- return all cabal configurations.
 -- currently this just globs for * /setup-config
 -- in the future you may write a config file describing the most common configuration settings
 cmdListCabalConfigurations :: Cmd
 cmdListCabalConfigurations =
     Cmd "list-cabal-configurations" $
-      reqArg' "cabal-file" S.unpack <&>
+      reqArg' "cabal-file" S.toString <&>
       optArg' "type" "uniq" id <&>
       optArg' "scion-default" False decodeBool $ cmd
   where cmd _cabal_file _type' _scionDefault = return (JSArray []) -- liftM toJSON $ cabalConfigurations cabal_file type' scionDefault
@@ -515,14 +515,14 @@ cmdSetGHCVerbosity =
     Cmd "set-ghc-verbosity" $ reqArg "level" $ setGHCVerbosity
 
 cmdBackgroundTypecheckFile :: Cmd
-cmdBackgroundTypecheckFile =
-    Cmd "background-typecheck-file" $ reqArg' "file" S.unpack $ cmd
+cmdBackgroundTypecheckFile = 
+    Cmd "background-typecheck-file" $ reqArg' "file" S.toString $ cmd
   where cmd fname = backgroundTypecheckFile fname
 
 cmdBackgroundTypecheckArbitrary :: Cmd
-cmdBackgroundTypecheckArbitrary =
-    Cmd "background-typecheck-arbitrary" $
-        reqArg' "file" S.unpack <&>
+cmdBackgroundTypecheckArbitrary = 
+    Cmd "background-typecheck-arbitrary" $ 
+        reqArg' "file" S.toString <&> 
         docContentsArg $ cmd
   where cmd fname contents = backgroundTypecheckArbitrary fname contents
 
@@ -532,8 +532,8 @@ cmdForceUnload = Cmd "force-unload" $ noArgs $ unload
 cmdAddCmdLineFlag :: Cmd
 cmdAddCmdLineFlag =
     Cmd "add-command-line-flag" $
-      optArg' "flag" "" S.unpack <&>
-      optArg' "flags" [] (map S.unpack) $ cmd
+      optArg' "flag" "" S.toString <&>
+      optArg' "flags" [] (map S.toString) $ cmd
   where cmd flag flags' = do
           addCmdLineFlags $ (if flag == "" then [] else [flag]) ++ flags'
           return JSNull
@@ -692,7 +692,7 @@ cmdDefinedNames = Cmd "defined-names" $ noArgs $ cmd
 
 cmdNameDefinitions :: Cmd
 cmdNameDefinitions =
-    Cmd "name-definitions" $ reqArg' "name" S.unpack $ cmd
+    Cmd "name-definitions" $ reqArg' "name" S.toString $ cmd
   where cmd nm = do
           db <- gets defSiteDB
           let nms=comps nm
@@ -710,7 +710,7 @@ cmdNameDefinitions =
 
 cmdIdentify :: Cmd
 cmdIdentify =
-    Cmd "client-identify" $ reqArg' "name" S.unpack $ cmd
+    Cmd "client-identify" $ reqArg' "name" S.toString $ cmd
   where cmd c = modifySessionState $ \s -> s { client = c }
 
 cmdDumpModuleGraph :: Cmd
