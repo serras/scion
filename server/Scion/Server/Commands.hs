@@ -32,7 +32,7 @@ import Scion.Server.Protocol
 import Scion.Inspect
 import Scion.Inspect.DefinitionSite
 import Scion.Inspect.PackageDB
-import Scion.Inspect.IFaceLoader
+import Scion.Inspect.Completions
 import Scion.Cabal
 import Scion.Ghc hiding ( (<+>) )
 
