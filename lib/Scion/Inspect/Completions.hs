@@ -1,8 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Scion.Inspect.Completions
-  ( updateModulesCache
-  , getModulesForTypecheck
+  ( getModulesFromTypecheck
   )
 where
 
@@ -15,30 +14,32 @@ import GHC
 import HscTypes
 import Outputable
 
--- | Update the module cache
-updateModulesCache :: Maybe BgTcCache
-                   -> ScionM ()
-updateModulesCache tychk = getModulesForTypecheck tychk >>= processModules >> return ()
-  where
-    processModules (_, depMods) =
-      gets moduleCache
-      >>= updateModules depMods
-      >>= (\newModCache -> modifySessionState $ updateSessionMCache newModCache)
+import Control.Monad
 
+-- | Get the list of modules associated with the type-checked source, updating the module cache
+-- as needed.
+getModulesFromTypecheck :: Maybe BgTcCache                                 -- ^ The type-checked source
+                        -> ScionM (Module, [(Module, ImportDecl RdrName)]) -- ^ The list of modules
+
+getModulesFromTypecheck (Just (Typechecked tcm)) = generateModules (tm_parsed_module tcm) >>= updateModulesCache
+getModulesFromTypecheck (Just (Parsed pm))       = generateModules pm >>= updateModulesCache
+-- Just keep the compiler happy! This should never get matched.
+getModulesFromTypecheck Nothing = undefined
+
+-- | Update the module cache
+updateModulesCache :: (Module, [(Module, ImportDecl RdrName)])
+                   -> ScionM (Module, [(Module, ImportDecl RdrName)])
+updateModulesCache result@(_, depMods) =
+      gets moduleCache
+      >>= updateModules (map fst depMods)
+      >>= (\newModCache -> modifySessionState $ updateSessionMCache newModCache)
+      >> return result
 
 -- Install the new module cache in the SessionState record:
 updateSessionMCache :: ModuleCache
                     -> SessionState
-		    -> SessionState
+		                -> SessionState
 updateSessionMCache newModCache session = session { moduleCache = newModCache }
-
--- | Get the list of modules associated with the type-checked source
-getModulesForTypecheck :: Maybe BgTcCache           -- ^ The type-checked source
-                       -> ScionM (Module, [Module]) -- ^ The list of modules
-
-getModulesForTypecheck (Just (Typechecked tcm)) = generateModules (tm_parsed_module tcm)
-getModulesForTypecheck (Just (Parsed pm))       = generateModules pm
-getModulesForTypecheck Nothing = undefined
 
 -- | Fabricate a module name that can be easily detected as bogus. The main source
 -- of these "unknown" modules is the exception raised by 'modLookup' (below) when
@@ -51,18 +52,21 @@ unknownModule = mkModule unknownPackageId
 -- | Extract the modules referenced by the current parsed module, returning
 -- the primary module's data and a list of the dependent modules
 generateModules :: ParsedModule              -- ^ The current module
-                -> ScionM (Module, [Module]) -- ^ The primary module, dependent modules list
-generateModules modSummary
+                -> ScionM (Module, [(Module, ImportDecl RdrName)])
+                   -- ^ Primary module, dependent modules list with import decls
+generateModules pm
   = getInnerModules >>= (\innerMods -> return (thisMod, innerMods))
   where
-    thisModSum      = pm_mod_summary modSummary
+    thisModSum      = pm_mod_summary pm
     thisMod         = ms_mod thisModSum
-    innerImports    = map unLoc $ ms_imps thisModSum
-    innerModNames   = map (unLoc . ideclName) innerImports
-    getInnerModules = mapM (\m -> modLookup m) innerModNames
+    innerImpDecls   = map unLoc $ ms_imps thisModSum
+    innerModNames   = map (unLoc . ideclName) innerImpDecls
+    -- getInnerModules :: ScionM [(Module, ImportDecl RdrName)] 
+    getInnerModules = zipWithM modLookup innerModNames innerImpDecls
+    -- modLookup :: ModuleName -> ImportDecl RdrName -> ScionM (Module, ImportDecl RdrName)
     -- Catch the GHC source error exception when a module doesn't appear to be loaded
-    modLookup m     = gcatch (lookupModule m Nothing)
-                             (\(_ :: SourceError) -> return $ unknownModule m)
+    modLookup mName idecl = gcatch (lookupModule mName Nothing >>= (\m -> return (m, idecl)))
+                                   (\(_ :: SourceError) -> return $ (unknownModule mName, idecl))
 
 -- | Get the type names for the current source in the background typecheck cache,
 -- both local and imported from modules.

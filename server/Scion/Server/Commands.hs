@@ -101,7 +101,7 @@ handleRequest req@(JSObject _) =
       -- The default command dispatcher:
       dispatch method params seq_id = 
         if method /= Dic.quit
-          then case M.lookup (S.unpack method) allCmds of
+          then case M.lookup (S.toString method) allCmds of
                 Nothing                 -> return (unknownCommand seq_id, True)
                 Just (Cmd _ arg_parser) -> decode_params params arg_parser seq_id
           else return (quitReply seq_id, False)
@@ -737,5 +737,5 @@ cmdDumpNameDB =
 cmdNamesInScope :: Cmd
 cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM -- >>= formatMods
   where
-    modsM = gets bgTcCache >>= updateModulesCache
+    modsM = gets bgTcCache >>= getModulesFromTypecheck >> return ()
     -- formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)
