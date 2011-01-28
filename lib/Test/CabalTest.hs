@@ -60,7 +60,7 @@ testDependenciesOneVersion=TestLabel "testDependenciesOneVersion" (TestCase (
         assertEqual "not 1.0.0.2" "1.0.0.2" (cp_version pkg)
         let cpDep=cp_dependent pkg
         assertEqual "not 1 dependent" 1 (length cpDep)
-        assertEqual "not library" (Library cabalFileName) (head cpDep)
+        assertEqual "not library" (Library cabalFileName True) (head cpDep)
         let (fpU,pkgsU)=head user
         assertEqual "not user.pkg" "user.pkg" fpU
         assertEqual "not 0 package" 0 (length pkgsU)
@@ -82,13 +82,13 @@ testDependenciesOneComponent=TestLabel "testDependenciesOneComponent" (TestCase 
         assertEqual "not 1.0.0.2" "1.0.0.2" (cp_version pkgArr)
         let cpDepArr=cp_dependent pkgArr
         assertEqual "not 1 dependent" 1 (length cpDepArr)
-        assertEqual "not library" (Library cabalFileName) $ head cpDepArr
+        assertEqual "not library" (Library cabalFileName True) $ head cpDepArr
         
         assertEqual "not containers" "containers" (cp_name pkgCont)
         assertEqual "not 2.0.0.1" "2.0.0.1" (cp_version pkgCont)
         let cpDepCont=cp_dependent pkgCont
         assertEqual "not 1 dependent" 1 (length cpDepCont)
-        assertEqual "not library" (Library cabalFileName) $ head cpDepArr
+        assertEqual "not library" (Library cabalFileName True) $ head cpDepArr
         
         let (fpU,pkgsU)=head user
         assertEqual "not user.pkg" "user.pkg" fpU
@@ -116,8 +116,8 @@ testDependenciesTwoComponents=TestLabel "testDependenciesTwoComponents" (TestCas
         assertEqual "not 1.0.0.2" "1.0.0.2" (cp_version pkg)
         let cpDep=cp_dependent pkg
         assertEqual "not 2 dependents" 2 (length cpDep)
-        assertBool "not library" (elem (Library cabalFileName) cpDep) 
-        assertBool "not executable" (elem (Executable cabalFileName "sample") cpDep) 
+        assertBool "not library" (elem (Library cabalFileName True) cpDep) 
+        assertBool "not executable" (elem (Executable cabalFileName "sample" True) cpDep) 
 
         let (fpU,pkgsU)=head user
         assertEqual "not user.pkg" "user.pkg" fpU
@@ -140,7 +140,7 @@ testDependenciesDifferentVersionSameDB=TestLabel "testDependenciesDifferentVersi
         assertEqual "not 1.0.0.2" "1.0.0.2" (cp_version yes)
         let cpDep=cp_dependent yes
         assertEqual "not 1 dependent" 1 (length cpDep)
-        assertEqual "not library" (Library cabalFileName) (head cpDep)
+        assertEqual "not library" (Library cabalFileName True) (head cpDep)
         assertEqual "not array" "array" (cp_name no)
         assertEqual "not 1.0.0.1" "1.0.0.1" (cp_version no)
         let cpDepN=cp_dependent no
@@ -163,7 +163,7 @@ testDependenciesDifferentVersionDifferentDB=TestLabel "testDependenciesDifferent
         assertEqual "not 1.0.0.2" "1.0.0.2" (cp_version pkg)
         let cpDep=cp_dependent pkg
         assertEqual "not 1 dependent" 1 (length cpDep)
-        assertEqual "not library" (Library cabalFileName) (head cpDep)
+        assertEqual "not library" (Library cabalFileName True) (head cpDep)
         let (fpU,pkgsU)=head user
         assertEqual "not user.pkg" "user.pkg" fpU
         assertEqual "not 1 package" 1 (length pkgsU)

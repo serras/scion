@@ -85,8 +85,11 @@ instance Exception CannotListPackages where
   fromException = scionFromException
 
 data CabalComponent
-  = Library FilePath
-  | Executable FilePath String
+  = Library {cabalFile :: FilePath
+        , buildable :: Bool}
+  | Executable {cabalFile :: FilePath
+        , exe_name :: String
+        , buildable :: Bool}
   deriving (Eq, Show)
 
 data CabalPackage=CabalPackage {
@@ -147,13 +150,13 @@ cabalComponentInit c = do
        Left (err :: IOException) -> return (Just (show err))
        Right _ -> return Nothing
 
-cabalFile :: CabalComponent -> FilePath
-cabalFile (Library f) = f
-cabalFile (Executable f _) = f
+--cabalFile :: CabalComponent -> FilePath
+--cabalFile (Library f) = f
+--cabalFile (Executable f _) = f
 
 -- | Return GHC 'Target's corresponding to this component.
 cabalTargets :: CabalComponent -> ScionM [Target]
-cabalTargets (Library f) = do
+cabalTargets Library{cabalFile=f} = do
   pd <- cabal_package f
 #if CABAL_VERSION < 107
   let modnames = PD.libModules pd
@@ -162,7 +165,7 @@ cabalTargets (Library f) = do
                | otherwise = []
 #endif
   return (map cabalModuleNameToTarget modnames)
-cabalTargets (Executable f name) = do
+cabalTargets Executable{exe_name=name,cabalFile=f} = do
   pd <- cabal_package f
   let ex0 = filter ((name==) . PD.exeName) (PD.executables pd)
   case ex0 of
@@ -198,7 +201,7 @@ cabalDynFlags component = do
    bi <- component_build_info component (localPkgDescr lbi)
    let odir0 = buildDir lbi
    let odir 
-         | Executable _ exeName' <- component
+         | Executable {exe_name=exeName'} <- component
            = odir0 </> dropExtension exeName'
          | otherwise
            = odir0
@@ -206,7 +209,7 @@ cabalDynFlags component = do
    let opts = ghcOptions lbi bi odir
 #else
        clbi
-         | Executable _ exeName' <- component
+         | Executable {exe_name=exeName'} <- component
            = fromJust $ lookup exeName' (executableConfigs lbi)
          | otherwise
            = fromJust $ libraryConfig lbi
@@ -214,10 +217,10 @@ cabalDynFlags component = do
 #endif
    return $ opts ++ output_file_opts odir
  where
-   component_build_info (Library _) pd
+   component_build_info Library{} pd
      | Just lib <- PD.library pd = return (PD.libBuildInfo lib)
      | otherwise                 = error "no lib" --noLibError
-   component_build_info (Executable _ n) pd =
+   component_build_info Executable{exe_name=n} pd =
      case [ exe | exe <- PD.executables pd, PD.exeName exe == n ] of
        [ exe ] -> return (PD.buildInfo exe)
        [] -> error "cabalDynFlags no exe" --noExeError n
@@ -226,7 +229,7 @@ cabalDynFlags component = do
 
    output_file_opts odir =
      case component of
-       Executable _ exeName' -> 
+       Executable{exe_name=exeName'} -> 
          ["-o", odir </> exeName' <.>
                   (if null $ takeExtension exeName'
                    then exeExtension
@@ -245,11 +248,13 @@ cabalProjectComponents :: FilePath -- ^ The .cabal file
 cabalProjectComponents cabal_file = do
     gpd <- cabalParse cabal_file
     let pd = PD.flattenPackageDescription gpd
-    return $ map Component $
-      (if isJust (PD.library pd) then [Library cabal_file] else []) ++
-      [ Executable cabal_file (PD.exeName e)
-      | e <- PD.executables pd ]
+    return $ map Component $ cabalComponentsFromDescription cabal_file pd
 
+cabalComponentsFromDescription :: FilePath -> PD.PackageDescription -> [CabalComponent]
+cabalComponentsFromDescription cabal_file pd= 
+      (if isJust (PD.library pd) then [Library cabal_file (PD.buildable $ PD.libBuildInfo $ fromJust (PD.library pd))] else []) ++
+      [ Executable cabal_file (PD.exeName e) (PD.buildable $ PD.buildInfo e)
+      | e <- PD.executables pd ]
 
 cabalParse :: FilePath -> ScionM PD.GenericPackageDescription
 cabalParse cabal_file = do  
@@ -299,9 +304,7 @@ dependencies :: FilePath -> PD.GenericPackageDescription -> [(FilePath,[Installe
 dependencies cabal_file gpd pkgs=let
         pkgsMap=foldr buildPkgMap DM.empty pkgs -- build the map of package by name with ordered version (more recent first)
         pd = PD.flattenPackageDescription gpd
-        allC= (if isJust (PD.library pd) then [Library cabal_file] else []) ++
-                      [ Executable cabal_file (PD.exeName e)
-                      | e <- PD.executables pd ]
+        allC= cabalComponentsFromDescription cabal_file pd
         gdeps=PD.buildDepends pd
         cpkgs=concat $ DM.elems $ DM.map (\ipis->getDep allC ipis gdeps []) pkgsMap
         in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,_)->(a,[])) pkgs))
@@ -454,19 +457,23 @@ configureCabalProject root_dir dist_dir _extra_args = do
 instance JSON CabalComponent where
   fromJSON obj@(JSObject _)
     | Just JSNull <- Dic.lookupKey obj (Dic.library),
-      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile =
-        return $ Library (S.unpack f)
+      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile,
+      Just (JSBool b) <- Dic.lookupKey obj Dic.buildable =
+        return $ Library (S.unpack f) b
     | Just (JSString s) <- Dic.lookupKey obj (Dic.executable),
-      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile =
-        return $ Executable (S.unpack f) (S.unpack s)
+      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile,
+      Just (JSBool b) <- Dic.lookupKey obj Dic.buildable =
+        return $ Executable (S.unpack f) (S.unpack s) b
   fromJSON _ = fail "component"
 
-  toJSON (Library f) =
+  toJSON (Library f b) =
     Dic.makeObject [(Dic.library, JSNull),
-                (Dic.cabalfile, JSString (S.pack f))]
-  toJSON (Executable f n) =
+                (Dic.cabalfile, JSString (S.pack f)),
+                (Dic.buildable, JSBool b)]
+  toJSON (Executable f n b) =
       Dic.makeObject [(Dic.executable, JSString (S.pack n)),
-                  (Dic.cabalfile, JSString (S.pack f))]
+                  (Dic.cabalfile, JSString (S.pack f)),
+                (Dic.buildable, JSBool b)]
 
 instance JSON CabalPackage where
         fromJSON obj@(JSObject _) | 
