@@ -177,19 +177,14 @@ loadComponent' comp options = do
 -- | Utility method to regenerate defSiteDB after loading.
 getDefSiteDB :: CompilationResult -- ^ The result of loading.
              -> ScionM ()
-getDefSiteDB rslt =
-  getModuleGraph
-  >>= (\mg ->
-         projectRootDir
-         >>= (\base_dir ->
-                moduleGraphDefSiteDB base_dir mg
-                >>= (\db -> liftIO (evaluate db)
-                             >> modifySessionState (\s -> s { lastCompResult = rslt
-                                                            , defSiteDB = db })
-                             >> return ()
-                     )
-              )
-       )
+getDefSiteDB rslt = do
+   mg <- getModuleGraph
+   base_dir <- projectRootDir
+   db <- moduleGraphDefSiteDB base_dir mg
+   liftIO $ evaluate db
+   modifySessionState $ \s -> s { lastCompResult = rslt,
+         defSiteDB = db}
+   return ()
 
 -- | Make the specified component the active one.  Sets the DynFlags
 --  to those specified for the given component.  Unloads the possible
@@ -342,7 +337,7 @@ backgroundTypecheckFile fname0 = do
      -- if it's the focused module, we know that the context is right
      mb_focusmod <- getSessionSelector focusedModule
      case mb_focusmod of
-       Just ms | Just f <- ml_hs_file (ms_location ms), f == fname -> 
+       Just ms | Just f <- ml_hs_file (ms_location ms), f == fname -> do
           backgroundTypecheckFile' mempty fname
 
        _otherwise -> do
@@ -355,9 +350,12 @@ backgroundTypecheckFile fname0 = do
                                           , lastCompResult = mempty })
               return $ Left "Could not find file in module graph."
             Just modsum -> do
-              (_, rslt) <- setContextForBGTC modsum
-              backgroundTypecheckFile' rslt fname
+              modifySessionState $ \sess ->
+                  sess { focusedModule = Just modsum}
+              --(_, rslt) <- setContextForBGTC modsum
+              backgroundTypecheckFile' mempty fname
               --if compilationSucceeded rslt
+              -- assume we are in the right component already
               --  then backgroundTypecheckFile' rslt fname
               --  else return $ Right rslt
 
@@ -472,6 +470,7 @@ filePathToProjectModule fname = do
    root_dir <- projectRootDir
    let rel_fname = normalise (makeRelative root_dir fname)
    mod_graph <- getModuleGraph
+   message verbose $ show $ map (ml_hs_file . ms_location) mod_graph
    case [ m | m <- mod_graph
             , not (isBootSummary m)
             , Just src <- [ml_hs_file (ms_location m)]

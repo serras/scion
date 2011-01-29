@@ -47,6 +47,8 @@ library :: S.ByteString
 library=S.pack "library"
 executable :: S.ByteString
 executable=S.pack "executable"
+buildable :: S.ByteString
+buildable=S.pack "buildable"
 result :: S.ByteString
 result=S.pack "result"
 
