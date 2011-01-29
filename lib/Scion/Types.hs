@@ -35,6 +35,10 @@ import qualified Data.ByteString.Char8 as S
 import qualified Data.Map as Map
 import qualified Data.MultiSet as MS
 import qualified Data.Sequence as Seq
+-- NOTE: GHC says that this is redundant, but I still want it imported as Set
+import qualified Data.Set as Set ()
+import qualified Data.Foldable as Fold
+
 import Distribution.Simple.LocalBuildInfo
 import System.Directory
   ( setCurrentDirectory
@@ -60,6 +64,9 @@ import Control.Applicative
 data SessionState 
   = SessionState {
       scionVerbosity :: Verbosity,
+        -- ^ Current server verbosity, defaults to 'NORMAL'. (NOTE: Should this be tied to the System.Log
+        -- verbosity in some way?)
+        
       initialDynFlags :: DynFlags,
         -- ^ The DynFlags as they were when Scion was started.  This is used
         -- to reset flags when opening a new project.  Arguably, the GHC API
@@ -93,7 +100,6 @@ data SessionState
 mkSessionState :: DynFlags -> IO (IORef SessionState)
 mkSessionState dflags =
     newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty emptyModuleCache "")
-
 
 newtype ScionM a
   = ScionM { unScionM :: IORef SessionState -> Ghc a }
@@ -138,16 +144,15 @@ instance GhcMonad ScionM where
 -- | Modify scion's current session state by rewriting the underlying IORef.
 modifySessionState :: (SessionState -> SessionState)  -- ^ Session state modification function
                    -> ScionM ()                       -- ^ Result
-modifySessionState f =
-    ScionM $ \r -> liftIO $ readIORef r >>= (\s -> writeIORef r $! f s)
-    -- Desugared version is much more succinct.
-    -- Was: liftIO $ do s <- readIORef r; writeIORef r $! f s
+modifySessionState modFunc = ScionM $ \r -> liftIO $ readIORef r >>= (\s -> writeIORef r $! modFunc s)
 
-getSessionState :: ScionM SessionState
-getSessionState = ScionM $ \s -> liftIO $ readIORef s
+-- | Get selector from SessionState record, e.g., getSessionSelector projectRoot
+getSessionSelector :: forall a. (SessionState -> a) -> ScionM a
+getSessionSelector sel = withSessionState (return . sel)
 
-gets :: (SessionState -> a) -> ScionM a
-gets sel = getSessionState >>= return . sel
+-- | Do something using the current session state
+withSessionState :: forall a. (SessionState -> ScionM a) -> ScionM a
+withSessionState sFunc = ScionM (\s -> liftIO $ readIORef s) >>= sFunc 
 
 setSessionState :: SessionState -> ScionM ()
 setSessionState s' = ScionM $ \r -> liftIO $ writeIORef r s'
@@ -184,7 +189,7 @@ deafening :: Verbosity
 deafening = Deafening
 
 getVerbosity :: ScionM Verbosity
-getVerbosity = gets scionVerbosity
+getVerbosity = getSessionSelector scionVerbosity
 
 setVerbosity :: Verbosity -> ScionM ()
 setVerbosity v = modifySessionState $ \s -> s { scionVerbosity = v }
@@ -458,7 +463,7 @@ data ModCacheData =
   }
 
 -- | Associations between symbol name and declaration data
-type ModSymData = Map.Map String ModSymDecls
+type ModSymData = Map.Map RdrName ModSymDecls
 -- | Sequence of declaration data
 type ModSymDecls = Seq.Seq ModDecl
 -- | Declaration data (note: would have like to use GHC's IfaceDecl here, but need
@@ -489,6 +494,19 @@ mkModCacheData fpath msymData =
     lastModTime = getModificationTime fpath
   , modSymData  = msymData
   }
+
+-- Various predicates for 'ModDeclSymbols'
+
+-- | Does the mod declaration set have a 'MTypeDecl'?
+hasMTypeDecl :: ModSymDecls
+             -> Bool
+hasMTypeDecl decls =
+  let hasMTypeDecl' :: Bool -> ModDecl -> Bool
+      hasMTypeDecl' result decl =
+        case decl of
+          (MTypeDecl _) -> True
+          _             -> False || result
+  in  Fold.foldl hasMTypeDecl' False decls
 
 instance Show IfaceDecl where
   show decl = (showSDoc . ppr) (ifName decl)

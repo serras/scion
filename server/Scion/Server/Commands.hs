@@ -545,7 +545,7 @@ cmdThingAtPoint =
   where
     cmd fname line col qual typed= do
       let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col
-      tc_res <- gets bgTcCache
+      tc_res <- getSessionSelector bgTcCache
       case tc_res of
         Just (Typechecked tcm) -> do
              let f=(if typed then (doThingAtPointTyped $ typecheckedSource tcm) else (doThingAtPointUntyped $ renamedSource tcm))
@@ -590,7 +590,7 @@ cmdToplevelNames=
      Cmd "top-level-names" $ noArgs $ cmd
   where
     cmd =do
-    tc_res <- gets bgTcCache
+    tc_res <- getSessionSelector bgTcCache
     case tc_res of
       Just m -> do
           return $ map showSDocDump $ toplevelNames m
@@ -602,7 +602,7 @@ cmdOutline =
  where
   cmd trim = do
     root_dir <- projectRootDir
-    tc_res <- gets bgTcCache
+    tc_res <- getSessionSelector bgTcCache
     case tc_res of
       Just m -> do
         let f = if trim then trimLocationFile else id
@@ -651,7 +651,7 @@ cmdDumpSources :: Cmd
 cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
   where
     cmd = do
-      tc_res <- gets bgTcCache
+      tc_res <- getSessionSelector bgTcCache
       case tc_res of
         Just (Typechecked tcm)
          | Just rn <- renamedSourceGroup `fmap` renamedSource tcm ->
@@ -662,11 +662,9 @@ cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
         _ -> return ()
 
 cmdLoad :: Cmd
-cmdLoad = Cmd "load" $ reqArg "component" <&>
-    optArg "options" defaultLoadOptions $ cmd
+cmdLoad = Cmd "load" $ reqArg "component" <&> optArg "options" defaultLoadOptions $ cmd
   where
-    cmd comp options= do
-      loadComponent' comp options
+    cmd comp options = loadComponent' comp options
 
 cmdSetVerbosity :: Cmd
 cmdSetVerbosity =
@@ -683,18 +681,17 @@ cmdCurrentComponent = Cmd "current-component" $ noArgs $ getActiveComponent
 cmdDumpDefinedNames :: Cmd
 cmdDumpDefinedNames = Cmd "dump-defined-names" $ noArgs $ cmd
   where
-    cmd = do db <- gets defSiteDB
-             liftIO $ putStrLn $ dumpDefSiteDB db
+    cmd = getSessionSelector defSiteDB
+          >>= (\db -> liftIO $ putStrLn $ dumpDefSiteDB db)
 
 cmdDefinedNames :: Cmd
-cmdDefinedNames = Cmd "defined-names" $ noArgs $ cmd
-  where cmd = definedNames <$> gets defSiteDB
+cmdDefinedNames = Cmd "defined-names" $ noArgs $ definedNames <$> getSessionSelector defSiteDB
 
 cmdNameDefinitions :: Cmd
 cmdNameDefinitions =
     Cmd "name-definitions" $ reqArg' "name" S.toString $ cmd
   where cmd nm = do
-          db <- gets defSiteDB
+          db <- getSessionSelector defSiteDB
           let nms=comps nm
           return $ map fst
                 $ filter (\(_,b)->nm == showSDocForUser alwaysQualify (ppr $ getName b))
@@ -735,7 +732,6 @@ cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
 cmdNamesInScope :: Cmd
-cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM -- >>= formatMods
+cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM
   where
-    modsM = gets bgTcCache >>= getModulesFromTypecheck >> return ()
-    -- formatMods (primary, depmods) = return $ map (showSDoc . pprModule) (primary:depmods)
+    modsM = getSessionSelector bgTcCache >>= getTyConCompletions

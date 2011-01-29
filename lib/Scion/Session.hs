@@ -82,7 +82,7 @@ initialScionDynFlags dflags =
 resetSessionState :: ScionM ()
 resetSessionState =
    unload
-   >> gets initialDynFlags
+   >> getSessionSelector initialDynFlags
    >>= (\dflags0 -> setSessionDynFlags (initialScionDynFlags dflags0))
    >> return ()
 
@@ -203,7 +203,7 @@ getDefSiteDB rslt =
 -- 
 setActiveComponent :: Component -> ScionM ()
 setActiveComponent the_comp@(Component comp) = do
-   curr_comp <- gets activeComponent
+   curr_comp <- getSessionSelector activeComponent
    when (needs_unloading curr_comp)
      unload
    r <- componentInit comp
@@ -220,7 +220,7 @@ setActiveComponent the_comp@(Component comp) = do
 
 -- | Return the currently active component.
 getActiveComponent :: ScionM (Maybe Component)
-getActiveComponent = gets activeComponent
+getActiveComponent = getSessionSelector activeComponent
 
 ------------------------------------------------------------------------
 -- * Compilation
@@ -340,7 +340,7 @@ backgroundTypecheckFile fname0 = do
    prepareContext fname = do
      message verbose $ "Preparing context for " ++ fname
      -- if it's the focused module, we know that the context is right
-     mb_focusmod <- gets focusedModule
+     mb_focusmod <- getSessionSelector focusedModule
      case mb_focusmod of
        Just ms | Just f <- ml_hs_file (ms_location ms), f == fname -> 
           backgroundTypecheckFile' mempty fname
@@ -377,7 +377,7 @@ backgroundTypecheckFile fname0 = do
               let res = CompilationResult ok notes
                                           (diffUTCTime end_time start_time)
               let abs_fname = mkAbsFilePath base_dir fname
-              full_comp_rslt <- removeMessagesForFile abs_fname =<< gets lastCompResult
+              full_comp_rslt <- removeMessagesForFile abs_fname =<< getSessionSelector lastCompResult
               let comp_rslt' =  full_comp_rslt `mappend` comp_rslt `mappend` res
 
               modifySessionState (\s -> s { bgTcCache = tc_res

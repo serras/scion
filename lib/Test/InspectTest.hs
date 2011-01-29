@@ -153,7 +153,7 @@ functionAtLine line=do
                 loadComponent' (Component $ FileComp file) (LoadOptions False False)
                 backgroundTypecheckFile file
                 let loc = srcLocSpan $ mkSrcLoc (fsLit file) line 13
-                tc_res <- gets bgTcCache
+                tc_res <- getSessionSelector bgTcCache
                 let s= showSDocForUser O.neverQualify  --showSDocDebug
                 l<-case tc_res of
                         Just (Typechecked tcm) -> do

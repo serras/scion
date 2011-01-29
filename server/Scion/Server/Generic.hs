@@ -7,7 +7,7 @@ import Prelude hiding ( log )
 import qualified Data.Map as DM
 
 import Scion
-import Scion.Types (gets, SessionState(..))
+import Scion.Types (getSessionSelector, SessionState(..))
 import qualified Scion.Types.JSONDictionary as Dic
 import Scion.Server.ConnectionIO as CIO
 import Scion.Server.Commands
@@ -52,7 +52,7 @@ handle con 0 = do
                 --logDebug $ "Cmd: " ++ show req
                 handleRequest req
      --processT <- liftIO $ getCPUTime           
-     c <- gets client
+     c <- getSessionSelector client
      --let resp_str = encodeStrict (if (c == "vim") then vimHack resp else resp)
      let resp_str= showJSON (if (c == "vim") then vimHack resp else resp)
      --encodeT <- liftIO $ getCPUTime   

@@ -39,12 +39,12 @@ import TcRnMonad
 import OccName
 import IfaceSyn
 import Fingerprint
+import RdrName
+import LazyUniqFM
 
 -- System imports
 import System.Directory
 import System.Time
-
--- import Debug.Trace
 
 -- | Synonym for a set of OccNames
 type OccNameSet = Set.Set OccName
@@ -62,25 +62,30 @@ data ModStateT =
     , otherMods  :: ModErrorSet
     }
 
+-- | Examine the incoming module list, read interface files if needed, return the updated module cache
 updateModules :: [Module]
               -> ModuleCache
               -> ScionM ModuleCache
 
 updateModules [] mCache = return mCache
 updateModules (m:mods) mCache
-  | ignorableMod m 
+  | unknownPackageId == (modulePackageId m) 
   = modDebugMsg m "Ignoring "
     >> updateModules mods mCache
+  | mainPackageId == (modulePackageId m)
+  = modDebugMsg m "Adding (main) "
+    >> cacheHomePackageModule m mCache
+    >>= updateModules mods
   | Nothing <- Map.lookup m mCache
   = modDebugMsg m "Adding   "
-    >> cacheModule m mCache
-    >>= (\updCache -> updateModules mods updCache)
+    >> cacheIFaceModule m mCache
+    >>= updateModules mods
   | otherwise
   = case Map.lookup m mCache of
       (Just mData) ->
         ifM (moduleChanged m (lastModTime mData))
           (modDebugMsg m "Updating "
-            >> cacheModule m mCache
+            >> cacheIFaceModule m mCache
             >>= updateModules mods)
           (modDebugMsg m "NoMod    " >> updateModules mods mCache)
       Nothing      ->
@@ -89,13 +94,6 @@ updateModules (m:mods) mCache
 -- | Package identifier for unknown/unloaded modules
 unknownPackageId :: PackageId
 unknownPackageId = stringToPackageId "*unknown*"
-      
--- A module is ignorable if it's part of the main package or it's unknown
-ignorableMod :: Module
-             -> Bool
-ignorableMod m = 
-  let mpkg = modulePackageId m
-  in  mpkg == mainPackageId || mpkg == unknownPackageId
   
 -- Predicate for detecting if the module's time/date stamp has changed
 moduleChanged :: Module
@@ -123,13 +121,13 @@ modDebugMsg m msg = message Verbose (msg ++ ((moduleNameString . moduleName) m))
 -- with the declarations. Note that the interface's export list only tells us the names of
 -- things that are exported; we subsequently have to look at the mi_decls list to extract
 -- specifics (Is something a type name or class? Does a constructor have arguments?)
-cacheModule :: Module
-            -> ModuleCache
-            -> ScionM ModuleCache
-cacheModule m cache = getInterfaceFile m >>= updateCache
+cacheIFaceModule :: Module
+                 -> ModuleCache
+                 -> ScionM ModuleCache
+cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
   where
-    updateCache :: Maybe (ModIface, FilePath) -> ScionM ModuleCache
-    updateCache maybeIface =
+    readIFace :: Maybe (ModIface, FilePath) -> ScionM ModuleCache
+    readIFace maybeIface =
       case maybeIface of
         Just (iface, fpath) ->
           let eSet = exportSet iface
@@ -167,7 +165,19 @@ cacheModule m cache = getInterfaceFile m >>= updateCache
     listProblems _     []       = return ()
     modNameList modnames = [ moduleNameString mn | mn <- Set.toList modnames ]
     occNameList occNames = [ occNameString o | o <- Set.toList occNames ]    
-      
+
+-- | Cache names from a home package module, i.e., something that's not an external package and
+-- is likely to be part of the "main" package
+cacheHomePackageModule :: Module
+                       -> ModuleCache
+                       -> ScionM ModuleCache
+cacheHomePackageModule m mCache = withSession readHomePackageModule
+  where
+    readHomePackageModule hsc =
+      case lookupUFM (hsc_HPT hsc) (moduleName m) of
+        (Just hmi) -> return mCache
+        Nothing    -> return mCache
+
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
 collectUsageDecls :: ModStateT -> Usage -> ScionM ModStateT
 collectUsageDecls mstate (UsagePackageModule usedMod _)  =
@@ -223,14 +233,14 @@ debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
   where
     missing = Set.difference (Set.fromList (map occNameString (Set.toList eSet)))
-                                           (Set.fromList $ Map.keys msyms)
+                                           (Set.fromList $ map (showSDoc . ppr) (Map.keys msyms))
     matchLengths
       | Set.null missing
       = "-- Everything extracted --"
       | otherwise
       = (show $ Set.size eSet) ++ " <> " ++ (show $ Map.size msyms) ++ "\ndifference is " ++ (show missing) ++ "\n"
     modSymDump = (Fold.foldl' (showModSymData) "" (Map.toList msyms))
-    showModSymData s (name, decls) = s ++ name ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
+    showModSymData s (name, decls) = s ++ ((showSDoc . ppr) name) ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
     showModDecls s d = s ++ (show d) ++ " "   
 
 -- | Extract the occurance name set from the Haskell interface file. This is a simple
@@ -270,7 +280,7 @@ collectExportDecls inOccMSyms decls = Fold.foldl' processDecl inOccMSyms [ d | (
 -- | Process
 filterDecl :: ModStateT -> OccName -> ModDecl -> ModStateT
 filterDecl mstate name sym =
-  let nameStr  = occNameString name
+  let nameStr  = mkRdrUnqual name
       eSet     = exportSyms mstate
       msymMap  = modSyms mstate
       symSeq = case Map.lookup nameStr msymMap of
@@ -291,7 +301,7 @@ addDataCons occMSymTuple (IfNewTyCon newTyDecl) =             filterCon occMSymT
 
 filterCon :: ModStateT -> IfaceConDecl -> ModStateT
 filterCon mstate c@(IfCon { ifConOcc = name }) =
-  let nameStr = occNameString name
+  let nameStr = mkRdrUnqual name
       eSet    = exportSyms mstate
       msymMap = modSyms mstate
       conSym  = MConDecl c
@@ -307,7 +317,7 @@ filterCon mstate c@(IfCon { ifConOcc = name }) =
 
 filterSig :: ModStateT -> IfaceClassOp -> ModStateT
 filterSig mstate op@(IfaceClassOp name _ _) =
-  let nameStr = occNameString name
+  let nameStr = mkRdrUnqual name
       msymMap = modSyms mstate
       eSet    = exportSyms mstate
       sigSym  = MClassOp op 
@@ -325,11 +335,11 @@ filterSig mstate op@(IfaceClassOp name _ _) =
 getInterfaceFile :: Module
                  -> ScionM (Maybe (ModIface, FilePath))
 getInterfaceFile m =
-    let iface              =   findAndReadIface empty m False
-        gblEnv             =   IfGblEnv { if_rec_types = Nothing }
+    let iface              = findAndReadIface empty m False
+        gblEnv             = IfGblEnv { if_rec_types = Nothing }
         ifaceLoader hscEnv = liftIO $ initTcRnIf  'a' hscEnv gblEnv () iface
-    in getSession >>= ifaceLoader >>= (\result ->
-                                        case result of
-                                          Maybes.Succeeded mIface ->    return (Just mIface)
-                                          _                       ->    return Nothing)
+        returnIFace result = case result of
+                              Maybes.Succeeded mIface -> return (Just mIface)
+                              _otherwise              -> return Nothing
+    in getSession >>= ifaceLoader >>= returnIFace
 
