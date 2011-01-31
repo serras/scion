@@ -46,6 +46,7 @@ generateTyConCompletions (_topMod, depModInfo) tychk session =
       completions = topModCompletions ++ depmodCompletions
   in  return completions
 
+-- | Filter predicate for extracting type constructors from an import entity
 onlyIETypeThings :: (IE RdrName) -> Bool
 onlyIETypeThings (IEThingAbs _)    = True
 onlyIETypeThings (IEThingAll _)    = True
@@ -139,7 +140,7 @@ getModulesFromTypecheck :: Maybe BgTcCache       -- ^ The type-checked source
 getModulesFromTypecheck (Just (Typechecked tcm)) = generateModules (tm_parsed_module tcm) >>= updateModuleCache
 getModulesFromTypecheck (Just (Parsed pm))       = generateModules pm >>= updateModuleCache
 -- Just keep the compiler happy! This should never get matched.
-getModulesFromTypecheck Nothing = undefined
+getModulesFromTypecheck Nothing = error "getModulesFromTypecheck Nothing"
 
 -- | Update the module cache
 updateModuleCache :: CurrentModules

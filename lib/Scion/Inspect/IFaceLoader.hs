@@ -127,40 +127,39 @@ cacheIFaceModule :: Module
 cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
   where
     readIFace :: Maybe (ModIface, FilePath) -> ScionM ModuleCache
-    readIFace maybeIface =
-      case maybeIface of
-        Just (iface, fpath) ->
-          let eSet = exportSet iface
-              initialMState = ModStateT {
-                                  modsRead   = Set.singleton m
-                                , exportSyms = eSet
-                                , modSyms    = Map.empty
-                                , hiddenMods = Set.empty
-                                , otherMods  = Set.empty
-                                }
-          in  collectInterface initialMState maybeIface
-              >>= (\mstate ->
-                    let updMSyms = modSyms mstate
-                    in  (debugModSymData (exportSyms mstate) updMSyms)
-                        >> (reportProblems mstate)
-                        >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
-        Nothing             ->
-          modDebugMsg m "Could not load " >> return cache
-
-    exportSet :: ModIface -> OccNameSet
-    exportSet iface = extractIfaceExports iface
+    readIFace (Just (iface, fpath)) =
+      let eSet = exportSet iface
+          initialMState = ModStateT {
+                              modsRead   = Set.singleton m
+                            , exportSyms = eSet
+                            , modSyms    = Map.empty
+                            , hiddenMods = Set.empty
+                            , otherMods  = Set.empty
+                            }
+      in  collectInterface initialMState iface
+          >>= (\mstate ->
+                let updMSyms = modSyms mstate
+                in  (debugModSymData (exportSyms mstate) updMSyms)
+                    >> (reportProblems m mstate)
+                    >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
     
-    reportProblems :: ModStateT -> ScionM ()
-    reportProblems mstate =
-      if {- not (Set.null (hiddenMods mstate)) || -} 
-        not (Set.null (otherMods mstate))
-        || not (Set.null (exportSyms mstate))
-          then (liftIO $ logWarn $ (moduleNameString (moduleName m)) ++ " module cache:")
-               {- >> listProblems "-- Hidden modules: " (modNameList (hiddenMods mstate)) -}
-               >> listProblems "-- Unreadable modules: " (modNameList (otherMods mstate))
-               >> listProblems "-- Symbols not cached: " (occNameList (exportSyms mstate))
-          else return ()
+    readIFace Nothing = modDebugMsg m "Could not load " >> return cache
 
+-- | Extract the set of names exported through the module interface
+exportSet :: ModIface -> OccNameSet
+exportSet iface = extractIfaceExports iface
+
+reportProblems :: Module -> ModStateT -> ScionM ()
+reportProblems m mstate =
+  if {- not (Set.null (hiddenMods mstate)) || -} 
+    not (Set.null (otherMods mstate))
+    || not (Set.null (exportSyms mstate))
+      then (liftIO $ logWarn $ (moduleNameString (moduleName m)) ++ " module cache:")
+           {- >> listProblems "-- Hidden modules: " (modNameList (hiddenMods mstate)) -}
+           >> listProblems "-- Unreadable modules: " (modNameList (otherMods mstate))
+           >> listProblems "-- Symbols not cached: " (occNameList (exportSyms mstate))
+      else return ()
+  where
     listProblems title (mn:mns) = liftIO $ logWarn $ title ++ (Fold.foldl' (\acc s -> acc ++ ", " ++ s) mn mns)
     listProblems _     []       = return ()
     modNameList modnames = [ moduleNameString mn | mn <- Set.toList modnames ]
@@ -171,12 +170,27 @@ cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
 cacheHomePackageModule :: Module
                        -> ModuleCache
                        -> ScionM ModuleCache
-cacheHomePackageModule m mCache = withSession readHomePackageModule
+cacheHomePackageModule m cache = withSession readHomePackageModule
   where
     readHomePackageModule hsc =
       case lookupUFM (hsc_HPT hsc) (moduleName m) of
-        (Just hmi) -> return mCache
-        Nothing    -> return mCache
+        (Just hmi) ->
+          let iface = hm_iface hmi
+              eSet = exportSet iface
+              initialMState = ModStateT {
+                                  modsRead   = Set.singleton m
+                                , exportSyms = eSet
+                                , modSyms    = Map.empty
+                                , hiddenMods = Set.empty
+                                , otherMods  = Set.empty
+                                }
+          in  collectInterface initialMState iface
+              >>= (\mstate ->
+                    let updMSyms = modSyms mstate
+                    in  (debugModSymData (exportSyms mstate) updMSyms)
+                        >> (reportProblems m mstate)
+                        >> (return $ Map.insert m (mkModCacheData "" updMSyms) cache))
+        Nothing    -> return cache
 
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
 collectUsageDecls :: ModStateT -> Usage -> ScionM ModStateT
@@ -185,7 +199,9 @@ collectUsageDecls mstate (UsagePackageModule usedMod _)  =
       mods = modsRead mstate
   in  if (Set.notMember usedMod mods) && not (Set.null eSet)
         then getInterfaceFile usedMod
-             >>= collectInterface mstate
+             >>= (\ifaceFile -> case ifaceFile of
+                                  (Just (iface, _)) -> collectInterface mstate iface
+                                  Nothing           -> return mstate)
         else return mstate
     
 collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
@@ -204,15 +220,16 @@ collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
                 }
         | otherwise
         = return mstate
+      procModule m
+        | Set.notMember m mods
+        = getInterfaceFile m >>= readModule m
+        | otherwise
+        = return mstate
+      readModule m (Just (iface, _)) = collectInterface (updMState m) iface
+      readModule m Nothing           = return (updMState m)
+      updMState m = mstate { modsRead = Set.insert m mods }
   in  if not (Set.null (exportSyms mstate))
-        then gcatch (gcatch (lookupModule usedMod Nothing
-                             >>= (\m -> if Set.notMember m mods
-                                          then getInterfaceFile m
-                                               >>= collectInterface mstate {
-                                                                      modsRead = Set.insert m mods
-                                                                    }
-                                          else return mstate)
-                            )
+        then gcatch (gcatch (lookupModule usedMod Nothing >>= procModule)
                             -- We can also get a SourceError if GHC can't find the module
                             (\(_ :: SourceError) -> addHiddenMod usedMod)
                     )
@@ -221,13 +238,10 @@ collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
         else return mstate
 
 -- | The basic Haskell interface collector driver.
-collectInterface :: ModStateT -> Maybe (ModIface, FilePath) -> ScionM ModStateT
-collectInterface mstate maybeIface =
-    case maybeIface of
-      Just (iface, _) ->
-        let updMState = collectExportDecls mstate (mi_decls iface)
-        in  Fold.foldlM collectUsageDecls updMState (mi_usages iface)
-      Nothing         -> return mstate
+collectInterface :: ModStateT -> ModIface -> ScionM ModStateT
+collectInterface mstate iface =
+  let updMState = collectExportDecls mstate (mi_decls iface)
+  in  Fold.foldlM collectUsageDecls updMState (mi_usages iface)
 
 debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
