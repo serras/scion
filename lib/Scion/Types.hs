@@ -27,16 +27,14 @@ import IfaceSyn
 import MonadUtils ( MonadIO )
 import Exception
 import Outputable
-import OccName
 
 import Text.JSON.AttoJSON
 
 import qualified Data.ByteString.Char8 as S
 import qualified Data.Map as Map
 import qualified Data.MultiSet as MS
-import qualified Data.Sequence as Seq
 -- NOTE: GHC says that this is redundant, but I still want it imported as Set
-import qualified Data.Set as Set ()
+import qualified Data.Set as Set
 import qualified Data.Foldable as Fold
 
 import Distribution.Simple.LocalBuildInfo
@@ -465,7 +463,7 @@ data ModCacheData =
 -- | Associations between symbol name and declaration data
 type ModSymData = Map.Map RdrName ModSymDecls
 -- | Sequence of declaration data
-type ModSymDecls = Seq.Seq ModDecl
+type ModSymDecls = Set.Set ModDecl
 -- | Declaration data (note: would have like to use GHC's IfaceDecl here, but need
 -- to extract information inside the IfaceDecl to populate additional 'ModSymData'
 -- associations.)
@@ -475,7 +473,39 @@ data ModDecl =
   | MConDecl   IfaceConDecl
   | MClassDecl IfaceDecl
   | MClassOp   IfaceClassOp
-  deriving (Show)
+
+instance Eq ModDecl where
+  MIdDecl        == MIdDecl          = True
+  (MTypeDecl a)  == (MTypeDecl b)    = (ifName a) == (ifName b)
+  (MConDecl  a)  == (MConDecl  b)    = (ifConOcc a) == (ifConOcc b)
+  (MClassDecl a) == (MClassDecl b)   = (ifName a) == (ifName b)
+  (MClassOp (IfaceClassOp a _ _)) == (MClassOp (IfaceClassOp b _ _)) = (a == b)
+  _ == _ = False
+  
+instance Ord ModDecl where
+  compare MIdDecl MIdDecl = EQ
+  compare MIdDecl _       = GT
+  compare (MTypeDecl _) MIdDecl       = GT
+  compare (MTypeDecl a) (MTypeDecl b) = (ifName a) `compare` (ifName b)
+  compare (MTypeDecl _) _             = LT
+  compare (MConDecl _)  MIdDecl       = GT
+  compare (MConDecl _)  (MTypeDecl _) = GT
+  compare (MConDecl a)  (MConDecl b)  = (ifConOcc a) `compare` (ifConOcc b)
+  compare (MConDecl _)  _             = LT
+  compare (MClassDecl _) MIdDecl        = GT
+  compare (MClassDecl _) (MTypeDecl _)  = GT
+  compare (MClassDecl _) (MConDecl _)   = GT
+  compare (MClassDecl a) (MClassDecl b) = (ifName a) `compare` (ifName b)
+  compare (MClassDecl _) (MClassOp _)   = LT
+  compare (MClassOp (IfaceClassOp a _ _)) (MClassOp (IfaceClassOp b _ _)) = a `compare` b
+  compare (MClassOp _) _ = GT
+  
+instance Show ModDecl where
+  show MIdDecl = "MIdDecl"
+  show (MTypeDecl a) = showSDoc $ text "MTypeDecl" <+> ppr (ifName a)
+  show (MConDecl a) = showSDoc $ text "MConDecl" <+> ppr (ifConOcc a)
+  show (MClassDecl a) = showSDoc $ text "MClassDecl" <+> ppr (ifName a)
+  show (MClassOp (IfaceClassOp a _ _)) = showSDoc $ text "MClassOp" <+> ppr a 
   
 emptyModuleCache :: ModuleCache
 emptyModuleCache = Map.empty
@@ -501,18 +531,6 @@ mkModCacheData fpath msymData =
 hasMTypeDecl :: ModSymDecls
              -> Bool
 hasMTypeDecl decls =
-  let hasMTypeDecl' :: Bool -> ModDecl -> Bool
-      hasMTypeDecl' result decl =
-        case decl of
-          (MTypeDecl _) -> True
-          _             -> False || result
-  in  Fold.foldl hasMTypeDecl' False decls
-
-instance Show IfaceDecl where
-  show decl = (showSDoc . ppr) (ifName decl)
-
-instance Show IfaceConDecl where
-  show conDecl = occNameString (ifConOcc conDecl)
-  
-instance Show IfaceClassOp where
-  show (IfaceClassOp name _ _) = occNameString name
+  let hasMTypeDecl' (MTypeDecl _) = True
+      hasMTypeDecl' _             = False
+  in Fold.and $ Set.map hasMTypeDecl' decls

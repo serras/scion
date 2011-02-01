@@ -17,8 +17,7 @@
 module Scion.Server.Commands (
   handleRequest, malformedRequest, -- allCommands, allCommands',
   -- these are reused in the vim interface
-  supportedPragmas, allExposedModules,
-  cmdNamesInScope
+  supportedPragmas, allExposedModules
 ) where
 
 import Prelude as P
@@ -187,7 +186,7 @@ allCommands =
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
-    , cmdNamesInScope
+    , cmdCompletionTypeCons
     ]
 
 ------------------------------------------------------------------------------
@@ -239,7 +238,7 @@ reqArg' name trans f = withReq $ \req ->
       Nothing -> fail $ "required arg missing: " ++ name
       Just x ->
           case fromJSON x of
-            Nothing -> fail $ "could not decode: " ++ name  -- ++ " - " ++ m
+            Nothing -> fail $ "could not decode: '" ++ name  ++ "'"
             Just a -> return (f (trans a))
 
 optArg' :: JSON a => String -> b -> (a -> b) -> (b -> r) -> Pa r
@@ -731,7 +730,7 @@ cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
-cmdNamesInScope :: Cmd
-cmdNamesInScope = Cmd "names-in-scope" $ noArgs $ modsM
+cmdCompletionTypeCons :: Cmd
+cmdCompletionTypeCons = Cmd "completion-tycons" $ noArgs $ modsM
   where
     modsM = getSessionSelector bgTcCache >>= getTyConCompletions

@@ -22,7 +22,6 @@ import Scion.Utils
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import qualified Data.Sequence as Seq
 import qualified Data.Foldable as Fold
 
 -- GHC's imports
@@ -130,11 +129,13 @@ cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
     readIFace (Just (iface, fpath)) =
       let eSet = exportSet iface
           initialMState = ModStateT {
-                              modsRead   = Set.singleton m
-                            , exportSyms = eSet
-                            , modSyms    = Map.empty
-                            , hiddenMods = Set.empty
-                            , otherMods  = Set.empty
+                              modsRead   =  Set.singleton m
+                            , exportSyms =  eSet
+                            , modSyms    =  case Map.lookup m cache of
+                                              (Just msyms) -> (modSymData msyms)
+                                              Nothing      -> Map.empty
+                            , hiddenMods =  Set.empty
+                            , otherMods  =  Set.empty
                             }
       in  collectInterface initialMState iface
           >>= (\mstate ->
@@ -145,21 +146,26 @@ cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
     
     readIFace Nothing = modDebugMsg m "Could not load " >> return cache
 
--- | Extract the set of names exported through the module interface
+-- | Extract the set of occurrance names exported through the module interface. This is a
+-- straightforward list-to-set transformation
 exportSet :: ModIface -> OccNameSet
-exportSet iface = extractIfaceExports iface
+exportSet iface = Fold.foldl' insertExp Set.empty [i | (_, i) <- mi_exports iface]
+  where
+    insertExp eSet names = Fold.foldl' insertExp' eSet names
+    insertExp' eSet (Avail name) = Set.insert name eSet
+    insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
 
 reportProblems :: Module -> ModStateT -> ScionM ()
 reportProblems m mstate =
-  if {- not (Set.null (hiddenMods mstate)) || -} 
-    not (Set.null (otherMods mstate))
-    || not (Set.null (exportSyms mstate))
+  if haveProblems
       then (liftIO $ logWarn $ (moduleNameString (moduleName m)) ++ " module cache:")
            {- >> listProblems "-- Hidden modules: " (modNameList (hiddenMods mstate)) -}
            >> listProblems "-- Unreadable modules: " (modNameList (otherMods mstate))
            >> listProblems "-- Symbols not cached: " (occNameList (exportSyms mstate))
       else return ()
   where
+    -- The haveProblems predicate is here to make commenting/uncommenting stuff easier.
+    haveProblems = not ({-(Set.null (hiddenMods mstate)) &&-} (Set.null (otherMods mstate)) && (Set.null (exportSyms mstate)))
     listProblems title (mn:mns) = liftIO $ logWarn $ title ++ (Fold.foldl' (\acc s -> acc ++ ", " ++ s) mn mns)
     listProblems _     []       = return ()
     modNameList modnames = [ moduleNameString mn | mn <- Set.toList modnames ]
@@ -178,11 +184,13 @@ cacheHomePackageModule m cache = withSession readHomePackageModule
           let iface = hm_iface hmi
               eSet = exportSet iface
               initialMState = ModStateT {
-                                  modsRead   = Set.singleton m
-                                , exportSyms = eSet
-                                , modSyms    = Map.empty
-                                , hiddenMods = Set.empty
-                                , otherMods  = Set.empty
+                                  modsRead   =  Set.singleton m
+                                , exportSyms =  eSet
+                                , modSyms    =  case Map.lookup m cache of
+                                                  (Just msyms) -> modSymData msyms
+                                                  Nothing      -> Map.empty
+                                , hiddenMods =  Set.empty
+                                , otherMods  =  Set.empty
                                 }
           in  collectInterface initialMState iface
               >>= (\mstate ->
@@ -213,28 +221,26 @@ collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
                 }
         | otherwise
         = return mstate
-      addOtherMod theMod
-        | not (Set.member theMod (otherMods mstate))
-        = return mstate {
-                  hiddenMods = Set.insert theMod (otherMods mstate)
-                }
-        | otherwise
-        = return mstate
-      procModule m
-        | Set.notMember m mods
-        = getInterfaceFile m >>= readModule m
-        | otherwise
-        = return mstate
+      processModule m = 
+        if Set.notMember m mods 
+          then getInterfaceFile m
+               >>= readModule m
+          else return mstate
+      -- Read an actual interface
       readModule m (Just (iface, _)) = collectInterface (updMState m) iface
-      readModule m Nothing           = return (updMState m)
+      -- Need to try harder: This could be a home module
+      readModule m Nothing           = 
+        withSession (\hsc ->
+                      case lookupUFM (hsc_HPT hsc) (moduleName m) of
+                        Just homeModInfo -> collectInterface (updMState m) (hm_iface homeModInfo)
+                        Nothing          -> return (updMState m)
+                    )
       updMState m = mstate { modsRead = Set.insert m mods }
   in  if not (Set.null (exportSyms mstate))
-        then gcatch (gcatch (lookupModule usedMod Nothing >>= procModule)
-                            -- We can also get a SourceError if GHC can't find the module
-                            (\(_ :: SourceError) -> addHiddenMod usedMod)
-                    )
-                    -- If module is hidden, we get an IOError exception
-                    (\(_ :: IOError) -> addOtherMod usedMod)
+        then gcatch
+              (lookupModule usedMod Nothing >>= processModule)
+              -- We can get a SourceError if GHC can't find the module
+              (\(_ :: SourceError) -> addHiddenMod usedMod)
         else return mstate
 
 -- | The basic Haskell interface collector driver.
@@ -247,24 +253,17 @@ debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
   where
     missing = Set.difference (Set.fromList (map occNameString (Set.toList eSet)))
-                                           (Set.fromList $ map (showSDoc . ppr) (Map.keys msyms))
+                             (Set.fromList (map (showSDoc . ppr) (Map.keys msyms)))
+    exportedSize = Set.size eSet
+    msymSize = Map.size msyms
     matchLengths
       | Set.null missing
       = "-- Everything extracted --"
       | otherwise
-      = (show $ Set.size eSet) ++ " <> " ++ (show $ Map.size msyms) ++ "\ndifference is " ++ (show missing) ++ "\n"
+      = (show exportedSize) ++ " <> " ++ (show $ msymSize) ++ "\ndifference is " ++ (show missing) ++ "\n"
     modSymDump = (Fold.foldl' (showModSymData) "" (Map.toList msyms))
     showModSymData s (name, decls) = s ++ ((showSDoc . ppr) name) ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
     showModDecls s d = s ++ (show d) ++ " "   
-
--- | Extract the occurance name set from the Haskell interface file. This is a simple
--- list transformation
-extractIfaceExports :: ModIface -> OccNameSet
-extractIfaceExports iface = Fold.foldl' insertExp Set.empty [i | (_, i) <- mi_exports iface]
-  where
-    insertExp eSet names = Fold.foldl' insertExp' eSet names
-    insertExp' eSet (Avail name) = Set.insert name eSet
-    insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
 
 -- | Collect export declarations, filtered by the exported name set.
 collectExportDecls :: ModStateT    -- ^ The exported name set
@@ -298,8 +297,8 @@ filterDecl mstate name sym =
       eSet     = exportSyms mstate
       msymMap  = modSyms mstate
       symSeq = case Map.lookup nameStr msymMap of
-                (Just msyms) -> msyms Seq.|> sym
-                Nothing      -> Seq.singleton sym
+                (Just msyms) -> Set.insert sym msyms
+                Nothing      -> Set.singleton sym
   in  if Set.member name eSet
         then mstate {
                 exportSyms = Set.delete name eSet
@@ -320,8 +319,8 @@ filterCon mstate c@(IfCon { ifConOcc = name }) =
       msymMap = modSyms mstate
       conSym  = MConDecl c
       symSeq  = case Map.lookup nameStr msymMap of
-                  (Just msyms) -> msyms Seq.|> conSym
-                  Nothing      -> Seq.singleton conSym
+                  (Just msyms) -> Set.insert conSym msyms
+                  Nothing      -> Set.singleton conSym
   in  if Set.member name eSet
         then mstate {
             exportSyms = Set.delete name eSet
@@ -336,8 +335,8 @@ filterSig mstate op@(IfaceClassOp name _ _) =
       eSet    = exportSyms mstate
       sigSym  = MClassOp op 
       symSeq  = case Map.lookup nameStr msymMap of
-                  (Just msyms) -> msyms Seq.|> sigSym
-                  Nothing      -> Seq.singleton sigSym
+                  (Just msyms) -> Set.insert sigSym msyms
+                  Nothing      -> Set.singleton sigSym
   in  if Set.member name eSet
         then mstate {
                 exportSyms = Set.delete name eSet
