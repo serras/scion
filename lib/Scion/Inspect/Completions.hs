@@ -2,7 +2,7 @@
 
 module Scion.Inspect.Completions
   ( getTyConCompletions
-  , updateModulesFromTypecheck
+  --, updateModulesFromTypecheck
   )
 where
 
@@ -47,7 +47,7 @@ generateTyConCompletions topMod depMods session =
       filteredMods :: Map.Map Module ModSymData
       filteredMods   = filterMods hasMTypeDecl usedMods
 
-      topModCompletions = extractCurrentSourceTyCons topMod
+      topModCompletions = extractCurrentSourceTyCons $ bgTcCache session--topMod
       
       impDecls = case Map.lookup topMod mCache of
                   (Just struct) -> importDecls struct
@@ -145,7 +145,7 @@ symIsMember hideFlag sym ((Exact _):names) = symIsMember hideFlag sym names
 
 -- | Get the type names for the current source in the background typecheck cache,
 -- both local and imported from modules.
-extractCurrentSourceTyCons :: Module -> [(String,String)]
+extractCurrentSourceTyCons :: (Maybe BgTcCache) -> [(String,String)]
 extractCurrentSourceTyCons m = localTypes m
   where
     -- Types local to the current source

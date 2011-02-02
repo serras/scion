@@ -733,4 +733,4 @@ cmdDumpNameDB =
 cmdCompletionTypeCons :: Cmd
 cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ modsM
   where
-    modsM fname = fileNameToProjectModule fname >>= getTyConCompletions
+    modsM fname = filePathToProjectModule fname >>= getTyConCompletions
