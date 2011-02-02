@@ -13,8 +13,9 @@
 -- Note: The inspiration for this source code comes from the Leksah IDE's server
 
 module Scion.Inspect.IFaceLoader
-  ( updateModules
+  ( updateMCacheFromTypecheck
   , unknownPackageId
+  , unknownModule
   ) where
 
 import Scion.Types
@@ -60,6 +61,60 @@ data ModStateT =
     , hiddenMods :: ModErrorSet
     , otherMods  :: ModErrorSet
     }
+
+-- | Dependent module information type
+type DepModuleInfo = (Module, [Module])
+
+-- | Get the list of modules associated with the type-checked source, updating the module cache
+-- as needed.
+updateMCacheFromTypecheck :: ParsedModule          -- ^ The parsed module
+                           -> ScionM ()
+updateMCacheFromTypecheck pm = generateDepModuleInfo pm >>= updateModuleCache >> return ()
+
+-- | Update the module cache
+updateModuleCache :: ([ImportDecl RdrName], DepModuleInfo)
+                  -> ScionM ()
+updateModuleCache (impDecls, (topMod, depMods)) =
+      getSessionSelector moduleCache
+      >>= updateModules depMods
+      >>= updateImpDecls topMod impDecls
+      >>= updateSessionCache
+      >> return ()
+
+-- | Update a module's import declarations list. Note that this in only valid for
+-- home modules and we rely on scion-server to have loaded that particular file
+-- when we query the module cache.
+updateImpDecls :: Module
+               -> [ImportDecl RdrName]
+               -> ModuleCache
+               -> ScionM ModuleCache
+updateImpDecls m impDecls mCache =
+  let struct = case Map.lookup m mCache of
+                (Just mdata) -> mdata
+                Nothing      -> emptyModCacheData
+  in  return $ Map.insert m (struct { importDecls = impDecls }) mCache
+    
+-- | Update the scion-server session's module cache.
+updateSessionCache :: ModuleCache
+                   -> ScionM ()
+updateSessionCache newModCache =
+  modifySessionState $ (\session -> session { moduleCache = newModCache })
+
+-- | Extract the modules referenced by the current parsed module, returning
+-- the primary module's data and a list of the dependent modules
+generateDepModuleInfo :: ParsedModule              -- ^ The current module
+                      -> ScionM ([ImportDecl RdrName], DepModuleInfo)
+                         -- ^ Primary module, dependent modules list
+generateDepModuleInfo pm = getInnerModules >>= (\innerMods -> return (impDecls, (thisMod, innerMods)))
+  where
+    thisModSum      = pm_mod_summary pm
+    thisMod         = ms_mod thisModSum
+    impDecls        = map unLoc $ ms_imps thisModSum
+    innerModNames   = map (unLoc . ideclName) impDecls
+    getInnerModules = mapM modLookup innerModNames
+    -- Catch the GHC source error exception when a module doesn't appear to be loaded
+    modLookup mName = gcatch (lookupModule mName Nothing >>= (\m -> return m ))
+                             (\(_ :: SourceError) -> return (unknownModule mName))
 
 -- | Examine the incoming module list, read interface files if needed, return the updated module cache
 updateModules :: [Module]
@@ -356,3 +411,10 @@ getInterfaceFile m =
                               _otherwise              -> return Nothing
     in getSession >>= ifaceLoader >>= returnIFace
 
+-- | Fabricate a module name that can be easily detected as bogus. The main source
+-- of these "unknown" modules is the exception raised by 'modLookup' (below) when
+-- GHC can't figure out to whom the module belongs. Consequently, these modules are
+-- not candidates from which names are extracted.
+unknownModule :: ModuleName
+              -> Module
+unknownModule = mkModule unknownPackageId

@@ -25,6 +25,7 @@ import Scion.Types
 import Scion.Types.Notes
 import Scion.Utils
 import Scion.Inspect.DefinitionSite
+import Scion.Inspect.IFaceLoader
 
 import qualified Data.MultiSet as MS
 import Control.Monad
@@ -178,13 +179,15 @@ loadComponent' comp options = do
 getDefSiteDB :: CompilationResult -- ^ The result of loading.
              -> ScionM ()
 getDefSiteDB rslt = do
-   mg <- getModuleGraph
-   base_dir <- projectRootDir
-   db <- moduleGraphDefSiteDB base_dir mg
-   liftIO $ evaluate db
-   modifySessionState $ \s -> s { lastCompResult = rslt,
-         defSiteDB = db}
-   return ()
+   getModuleGraph
+   >>= (\mg ->
+          projectRootDir
+          >>= (\base_dir -> moduleGraphDefSiteDB base_dir mg
+                            >>= (\db -> (liftIO $ evaluate db)
+                                        >> modifySessionState (\s -> s { lastCompResult = rslt
+                                                                       , defSiteDB = db
+                                                                       })
+                                        >> return () )))
 
 -- | Make the specified component the active one.  Sets the DynFlags
 --  to those specified for the given component.  Unloads the possible
@@ -364,7 +367,6 @@ backgroundTypecheckFile fname0 = do
       clearWarnings
       start_time <- liftIO $ getCurrentTime
       
-
       let finish_up tc_res errs = do
               base_dir <- projectRootDir
               warns <- getWarnings
@@ -377,6 +379,11 @@ backgroundTypecheckFile fname0 = do
               let abs_fname = mkAbsFilePath base_dir fname
               full_comp_rslt <- removeMessagesForFile abs_fname =<< getSessionSelector lastCompResult
               let comp_rslt' =  full_comp_rslt `mappend` comp_rslt `mappend` res
+              
+              case tc_res of
+                Just (Typechecked tcm) -> updateMCacheFromTypecheck (tm_parsed_module tcm)
+                Just (Parsed pm)       -> updateMCacheFromTypecheck pm
+                Nothing                -> return ()
 
               modifySessionState (\s -> s { bgTcCache = tc_res
                                           , lastCompResult = comp_rslt' })
@@ -389,11 +396,10 @@ backgroundTypecheckFile fname0 = do
           -- TODO: measure time and stop after a phase if it takes too long?
           parsed_mod <- parseModule modsum
           ghandle (\(e :: SourceError) -> finish_up  (Just (Parsed parsed_mod)) (srcErrorMessages e)) $
-                do
-                  tcd_mod <- typecheckModule parsed_mod
-                  ds_mod <- desugarModule tcd_mod
-                  _ <- loadModule ds_mod -- ensure it's in the HPT
-                  finish_up (Just (Typechecked tcd_mod)) mempty
+                typecheckModule parsed_mod
+                >>= (\tcd_mod -> desugarModule tcd_mod
+                                 >>= loadModule        -- Ensure that the module is present in the home package table
+                                 >> finish_up (Just (Typechecked tcd_mod)) mempty)
 
    preprocessModule fname =
      depanal [] True

@@ -266,7 +266,7 @@ noArgs = return
 
 -- | Command takes a file name argument
 fileNameArg :: (String -> r) -> Pa r
-fileNameArg = reqArg "file"
+fileNameArg = reqArg' "file" S.toString
 
 -- | Command takes a document argument
 docContentsArg :: (String -> r) -> Pa r
@@ -515,13 +515,13 @@ cmdSetGHCVerbosity =
 
 cmdBackgroundTypecheckFile :: Cmd
 cmdBackgroundTypecheckFile = 
-    Cmd "background-typecheck-file" $ reqArg' "file" S.toString $ cmd
+    Cmd "background-typecheck-file" $ fileNameArg $ cmd
   where cmd fname = backgroundTypecheckFile fname
 
 cmdBackgroundTypecheckArbitrary :: Cmd
 cmdBackgroundTypecheckArbitrary = 
     Cmd "background-typecheck-arbitrary" $ 
-        reqArg' "file" S.toString <&> 
+        fileNameArg <&> 
         docContentsArg $ cmd
   where cmd fname contents = backgroundTypecheckArbitrary fname contents
 
@@ -731,6 +731,6 @@ cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
 cmdCompletionTypeCons :: Cmd
-cmdCompletionTypeCons = Cmd "completion-tycons" $ noArgs $ modsM
+cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ modsM
   where
-    modsM = getSessionSelector bgTcCache >>= getTyConCompletions
+    modsM fname = fileNameToProjectModule fname >>= getTyConCompletions

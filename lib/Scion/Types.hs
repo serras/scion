@@ -453,11 +453,12 @@ instance JSON LoadOptions where
 -- the Haskell interface file
 type ModuleCache = Map.Map Module ModCacheData
 
--- | Name to interface declaration sequence association
+-- | Name to module symbol data associations
 data ModCacheData = 
   ModCacheData {
-    lastModTime :: IO ClockTime   -- ^ Last modified time for Haskell interface files 
-  , modSymData  :: ModSymData     -- ^ Module symbol data
+    lastModTime :: IO ClockTime         -- ^ Last modified time for Haskell interface files 
+  , modSymData  :: ModSymData           -- ^ Module symbol data
+  , importDecls :: [ImportDecl RdrName] -- ^ Import declarations for home modules
   }
 
 -- | Associations between symbol name and declaration data
@@ -515,6 +516,7 @@ emptyModCacheData =
   ModCacheData {
     lastModTime = return (TOD 0 0)
   , modSymData  = Map.empty
+  , importDecls = []
   }
 
 -- | Make a new module cache record
@@ -523,6 +525,7 @@ mkModCacheData fpath msymData =
   ModCacheData {
     lastModTime = getModificationTime fpath
   , modSymData  = msymData
+  , importDecls = []
   }
 
 -- Various predicates for 'ModDeclSymbols'

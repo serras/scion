@@ -2,7 +2,7 @@
 
 module Scion.Inspect.Completions
   ( getTyConCompletions
-  , getModulesFromTypecheck
+  , updateModulesFromTypecheck
   )
 where
 
@@ -20,29 +20,40 @@ import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.List as List
 
-type CurrentModules = (Module, [(Module, ImportDecl RdrName)])
-
 -- | Generate the completions for type constructors
-getTyConCompletions :: Maybe BgTcCache
+getTyConCompletions :: Maybe ModSummary
                     -> ScionM [(String, String)]
-getTyConCompletions tychk =
-  getModulesFromTypecheck tychk
-  >>= (\curMods -> withSessionState $ generateTyConCompletions curMods tychk) 
+                    
+getTyConCompletions (Just modSum) =
+  let impDecls        = map unLoc $ ms_imps modSum
+      innerModNames   = map (unLoc . ideclName) impDecls
+      getInnerModules = mapM modLookup innerModNames
+      -- Catch the GHC source error exception when a module doesn't appear to be loaded
+      modLookup mName = gcatch (lookupModule mName Nothing >>= (\m -> return m ))
+                               (\(_ :: SourceError) -> return (unknownModule mName))
+  
+  in  getInnerModules >>= (\curMods -> withSessionState $ generateTyConCompletions (ms_mod modSum) curMods)
+
+getTyConCompletions Nothing = return []
 
 -- | Look through the module map and scan for completions
-generateTyConCompletions :: CurrentModules
-                         -> Maybe BgTcCache
+generateTyConCompletions :: Module
+                         -> [Module]
                          -> SessionState
                          -> ScionM [(String, String)]
-generateTyConCompletions (_topMod, depModInfo) tychk session =
-  let depMods = map fst depModInfo
-      usedMods = Map.filterWithKey (\k _ -> k `List.elem` depMods) $ moduleCache session
+generateTyConCompletions topMod depMods session =
+  let mCache = moduleCache session
+      usedMods = Map.filterWithKey (\k _ -> k `List.elem` depMods) mCache
       filteredMods :: Map.Map Module ModSymData
       filteredMods   = filterMods hasMTypeDecl usedMods
 
-      topModCompletions = extractMainPackageModuleSyms tychk
+      topModCompletions = extractCurrentSourceTyCons topMod
       
-      depmodCompletions = concatMap (formatModSymData filteredMods onlyIETypeThings) depModInfo
+      impDecls = case Map.lookup topMod mCache of
+                  (Just struct) -> importDecls struct
+                  Nothing       -> undefined
+      modDecls = zip depMods impDecls
+      depmodCompletions = concatMap (formatModSymData filteredMods onlyIETypeThings) modDecls
       completions = topModCompletions ++ depmodCompletions
   in  return completions
 
@@ -132,65 +143,15 @@ symIsMember _hideFlag (Exact  _) _names = undefined
 -- Can't do much with 'Exact' names
 symIsMember hideFlag sym ((Exact _):names) = symIsMember hideFlag sym names
 
--- | Get the list of modules associated with the type-checked source, updating the module cache
--- as needed.
-getModulesFromTypecheck :: Maybe BgTcCache       -- ^ The type-checked source
-                        -> ScionM CurrentModules -- ^ The list of modules
-
-getModulesFromTypecheck (Just (Typechecked tcm)) = generateModules (tm_parsed_module tcm) >>= updateModuleCache
-getModulesFromTypecheck (Just (Parsed pm))       = generateModules pm >>= updateModuleCache
--- Just keep the compiler happy! This should never get matched.
-getModulesFromTypecheck Nothing = error "getModulesFromTypecheck Nothing"
-
--- | Update the module cache
-updateModuleCache :: CurrentModules
-                  -> ScionM CurrentModules
-updateModuleCache result@(_, depMods) =
-      getSessionSelector moduleCache
-      >>= updateModules (map fst depMods)
-      >>= updateSessionCache
-      >> return result
-
--- | Update the scion-server session's module cache.
-updateSessionCache :: ModuleCache
-                   -> ScionM ()
-updateSessionCache newModCache = modifySessionState $ (\session -> session { moduleCache = newModCache })
-
--- | Fabricate a module name that can be easily detected as bogus. The main source
--- of these "unknown" modules is the exception raised by 'modLookup' (below) when
--- GHC can't figure out to whom the module belongs. Consequently, these modules are
--- not candidates from which names are extracted.
-unknownModule :: ModuleName
-              -> Module
-unknownModule = mkModule unknownPackageId
-
--- | Extract the modules referenced by the current parsed module, returning
--- the primary module's data and a list of the dependent modules
-generateModules :: ParsedModule              -- ^ The current module
-                -> ScionM CurrentModules
-                   -- ^ Primary module, dependent modules list with import decls
-generateModules pm
-  = getInnerModules >>= (\innerMods -> return (thisMod, innerMods))
-  where
-    thisModSum      = pm_mod_summary pm
-    thisMod         = ms_mod thisModSum
-    innerImpDecls   = map unLoc $ ms_imps thisModSum
-    innerModNames   = map (unLoc . ideclName) innerImpDecls
-    getInnerModules = zipWithM modLookup innerModNames innerImpDecls
-    -- Catch the GHC source error exception when a module doesn't appear to be loaded
-    modLookup mName idecl = gcatch (lookupModule mName Nothing >>= (\m -> return (m, idecl)))
-                                   (\(_ :: SourceError) -> return $ (unknownModule mName, idecl))
-
 -- | Get the type names for the current source in the background typecheck cache,
 -- both local and imported from modules.
-extractMainPackageModuleSyms :: Maybe BgTcCache -> [(String,String)]
-extractMainPackageModuleSyms Nothing = []
-extractMainPackageModuleSyms tychk = localTypes tychk
+extractCurrentSourceTyCons :: Module -> [(String,String)]
+extractCurrentSourceTyCons m = localTypes m
   where
     -- Types local to the current source
     localTypes (Just (Typechecked tcm)) = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
     localTypes (Just (Parsed pm))       = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
-    localTypes Nothing                  = error "Bad pattern match in cmdTypeNames/localTypes"
+    localTypes Nothing                  = error "Bad pattern match in extractCurrentSourceTyCons/localTypes"
     -- Output format is a tuple ("type","module")
     formatInfo modname ty = (formatTyDecl ty, modname)
     -- The stuff you have to go through just to get the module's name... :-)
