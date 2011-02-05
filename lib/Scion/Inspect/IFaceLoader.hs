@@ -16,18 +16,22 @@ module Scion.Inspect.IFaceLoader
   ( updateMCacheFromTypecheck
   , unknownPackageId
   , unknownModule
+  , updateHomeModuleTyCons
   ) where
 
 import Scion.Types
 import Scion.Utils
+import Scion.Inspect
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Foldable as Fold
+import qualified Data.List as List
 
 -- GHC's imports
 import GHC
 import GHC.Exception()
+import BasicTypes
 import HscTypes
 import Module
 import Outputable
@@ -38,7 +42,6 @@ import TcRnTypes
 import TcRnMonad
 import OccName
 import IfaceSyn
-import Fingerprint
 import RdrName
 import LazyUniqFM
 
@@ -68,52 +71,45 @@ type DepModuleInfo = (Module, [Module])
 -- | Get the list of modules associated with the type-checked source, updating the module cache
 -- as needed.
 updateMCacheFromTypecheck :: ParsedModule          -- ^ The parsed module
-                           -> ScionM ()
-updateMCacheFromTypecheck pm = generateDepModuleInfo pm >>= updateModuleCache >> return ()
+                           -> ScionM ModuleCache
+updateMCacheFromTypecheck pm = generateDepModuleInfo pm >>= updateModuleCache
 
 -- | Update the module cache
 updateModuleCache :: ([ImportDecl RdrName], DepModuleInfo)
-                  -> ScionM ()
+                  -> ScionM ModuleCache
 updateModuleCache (impDecls, (topMod, depMods)) =
       getSessionSelector moduleCache
       >>= updateModules depMods
       >>= updateImpDecls topMod impDecls
-      >>= updateSessionCache
-      >> return ()
 
--- | Update a module's import declarations list. Note that this in only valid for
--- home modules and we rely on scion-server to have loaded that particular file
--- when we query the module cache.
+-- | Update the scion-server session's module cache.
 updateImpDecls :: Module
                -> [ImportDecl RdrName]
                -> ModuleCache
                -> ScionM ModuleCache
-updateImpDecls m impDecls mCache =
-  let struct = case Map.lookup m mCache of
+updateImpDecls topMod impDecls mCache = return $ Map.insert topMod (struct { importDecls = impDecls }) mCache
+  where
+    struct  = case Map.lookup topMod mCache of
                 (Just mdata) -> mdata
                 Nothing      -> emptyModCacheData
-  in  return $ Map.insert m (struct { importDecls = impDecls }) mCache
-    
--- | Update the scion-server session's module cache.
-updateSessionCache :: ModuleCache
-                   -> ScionM ()
-updateSessionCache newModCache =
-  modifySessionState $ (\session -> session { moduleCache = newModCache })
 
 -- | Extract the modules referenced by the current parsed module, returning
 -- the primary module's data and a list of the dependent modules
 generateDepModuleInfo :: ParsedModule              -- ^ The current module
                       -> ScionM ([ImportDecl RdrName], DepModuleInfo)
                          -- ^ Primary module, dependent modules list
-generateDepModuleInfo pm = getInnerModules >>= (\innerMods -> return (impDecls, (thisMod, innerMods)))
+generateDepModuleInfo pm = getInnerModules >>= depImportsModules
   where
-    thisModSum      = pm_mod_summary pm
-    thisMod         = ms_mod thisModSum
-    impDecls        = map unLoc $ ms_imps thisModSum
-    innerModNames   = map (unLoc . ideclName) impDecls
-    getInnerModules = mapM modLookup innerModNames
+    -- What we return
+    depImportsModules mods = return (impDecls, (thisMod, mods))
+    -- Associated machinery with generating what we return
+    thisModSum        = pm_mod_summary pm
+    thisMod           = ms_mod thisModSum
+    impDecls          = map unLoc $ ms_imps thisModSum
+    innerModNames     = map (unLoc . ideclName) impDecls
+    getInnerModules   = mapM modLookup innerModNames
     -- Catch the GHC source error exception when a module doesn't appear to be loaded
-    modLookup mName = gcatch (lookupModule mName Nothing >>= (\m -> return m ))
+    modLookup mName = gcatch (lookupModule mName Nothing)
                              (\(_ :: SourceError) -> return (unknownModule mName))
 
 -- | Examine the incoming module list, read interface files if needed, return the updated module cache
@@ -186,27 +182,27 @@ cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
           initialMState = ModStateT {
                               modsRead   =  Set.singleton m
                             , exportSyms =  eSet
-                            , modSyms    =  case Map.lookup m cache of
-                                              (Just msyms) -> (modSymData msyms)
-                                              Nothing      -> Map.empty
+                            , modSyms    =  Map.empty
                             , hiddenMods =  Set.empty
                             , otherMods  =  Set.empty
                             }
+          updateModSyms mstate =
+            let fixedMState = fixPrelude m mstate
+                updMSyms = modSyms fixedMState
+            in  debugModSymData (exportSyms fixedMState) updMSyms
+                >> reportProblems m fixedMState
+                >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache)
       in  collectInterface initialMState iface
-          >>= (\mstate ->
-                let updMSyms = modSyms mstate
-                in  (debugModSymData (exportSyms mstate) updMSyms)
-                    >> (reportProblems m mstate)
-                    >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache))
+          >>= updateModSyms
     
     readIFace Nothing = modDebugMsg m "Could not load " >> return cache
 
 -- | Extract the set of occurrance names exported through the module interface. This is a
 -- straightforward list-to-set transformation
 exportSet :: ModIface -> OccNameSet
-exportSet iface = Fold.foldl' insertExp Set.empty [i | (_, i) <- mi_exports iface]
+exportSet iface = List.foldl' insertExp Set.empty [i | (_, i) <- mi_exports iface]
   where
-    insertExp eSet names = Fold.foldl' insertExp' eSet names
+    insertExp eSet names = List.foldl' insertExp' eSet names
     insertExp' eSet (Avail name) = Set.insert name eSet
     insertExp' eSet (AvailTC name mbrs) = Set.union (Set.insert name eSet) (Set.fromList mbrs)
 
@@ -220,8 +216,8 @@ reportProblems m mstate =
       else return ()
   where
     -- The haveProblems predicate is here to make commenting/uncommenting stuff easier.
-    haveProblems = not ({-(Set.null (hiddenMods mstate)) &&-} (Set.null (otherMods mstate)) && (Set.null (exportSyms mstate)))
-    listProblems title (mn:mns) = liftIO $ logWarn $ title ++ (Fold.foldl' (\acc s -> acc ++ ", " ++ s) mn mns)
+    haveProblems = not ({- (Set.null (hiddenMods mstate)) &&-} (Set.null (otherMods mstate)) && (Set.null (exportSyms mstate)))
+    listProblems title (mn:mns) = liftIO $ logWarn $ title ++ (List.foldl' (\acc s -> acc ++ ", " ++ s) mn mns)
     listProblems _     []       = return ()
     modNameList modnames = [ moduleNameString mn | mn <- Set.toList modnames ]
     occNameList occNames = [ occNameString o | o <- Set.toList occNames ]    
@@ -258,28 +254,24 @@ cacheHomePackageModule m cache = withSession readHomePackageModule
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
 collectUsageDecls :: ModStateT -> Usage -> ScionM ModStateT
 collectUsageDecls mstate (UsagePackageModule usedMod _)  =
-  let eSet = exportSyms mstate
-      mods = modsRead mstate
-  in  if (Set.notMember usedMod mods) && not (Set.null eSet)
-        then getInterfaceFile usedMod
-             >>= (\ifaceFile -> case ifaceFile of
-                                  (Just (iface, _)) -> collectInterface mstate iface
-                                  Nothing           -> return mstate)
+  let eSet                            = exportSyms mstate
+      mods                            = modsRead mstate
+      updMState iface origMState      = origMState { modsRead = Set.insert (mi_module iface) mods }
+      readIfaceFile (Just (iface, _)) = collectInterface (updMState iface mstate) iface
+      readIfaceFile Nothing           = return mstate
+  in  if not (Set.null eSet) && (Set.notMember usedMod mods) 
+        then getInterfaceFile usedMod >>= readIfaceFile
         else return mstate
     
 collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
   let mods = modsRead mstate
-      addHiddenMod theMod
-        | not (Set.member theMod (hiddenMods mstate))
-        = return mstate {
+      addHiddenMod theMod =
+         return mstate {
                   hiddenMods = Set.insert theMod (hiddenMods mstate)
                 }
-        | otherwise
-        = return mstate
       processModule m = 
         if Set.notMember m mods 
-          then getInterfaceFile m
-               >>= readModule m
+          then getInterfaceFile m >>= readModule m
           else return mstate
       -- Read an actual interface
       readModule m (Just (iface, _)) = collectInterface (updMState m) iface
@@ -301,8 +293,10 @@ collectUsageDecls mstate (UsageHomeModule usedMod _ _ _) =
 -- | The basic Haskell interface collector driver.
 collectInterface :: ModStateT -> ModIface -> ScionM ModStateT
 collectInterface mstate iface =
-  let updMState = collectExportDecls mstate (mi_decls iface)
-  in  Fold.foldlM collectUsageDecls updMState (mi_usages iface)
+  let declsList = [ d | (_, d) <- mi_decls iface ]
+      updMState = List.foldl' processDecl mstate declsList
+      usages    = mi_usages iface
+  in  Fold.foldlM collectUsageDecls updMState usages
 
 debugModSymData :: OccNameSet -> ModSymData -> ScionM ()
 debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDump
@@ -315,39 +309,36 @@ debugModSymData eSet msyms = message Verbose $ matchLengths ++ "\n" ++ modSymDum
       | Set.null missing
       = "-- Everything extracted --"
       | otherwise
-      = (show exportedSize) ++ " <> " ++ (show $ msymSize) ++ "\ndifference is " ++ (show missing) ++ "\n"
-    modSymDump = (Fold.foldl' (showModSymData) "" (Map.toList msyms))
+      = (show exportedSize)
+          ++ " not found, "
+          ++ (show msymSize)
+          ++ " collected\ndifference is "
+          ++ (show missing)
+          ++ "\n"
+    modSymDump = (List.foldl' (showModSymData) "" (Map.toList msyms))
     showModSymData s (name, decls) = s ++ ((showSDoc . ppr) name) ++ " -> [ " ++ (Fold.foldl showModDecls "" decls) ++ "]\n"
     showModDecls s d = s ++ (show d) ++ " "   
 
--- | Collect export declarations, filtered by the exported name set.
-collectExportDecls :: ModStateT    -- ^ The exported name set
-                   -> [(Fingerprint, IfaceDecl)]  -- ^ The interface file's declarations
-                   -> ModStateT    -- ^ The collected association between name strings and declaration data
+-- | Process each declaration as we receive it from a module's declaration's list.
+processDecl :: ModStateT -> IfaceDecl -> ModStateT
+-- Regular function or top level identifier.
+processDecl mState (IfaceId { ifName = name }) = addExportDecl mState name MIdDecl
+-- A 'data' declaration: insert it first, followed by its data type constructors
+processDecl mState sym@(IfaceData { ifName = name }) =
+  let updMState = addExportDecl mState name (MTypeDecl sym)
+  in  addDataCons updMState (ifCons sym)
+-- A 'newtype' (synonym) declaration
+processDecl mState sym@(IfaceSyn { ifName = name }) = addExportDecl mState name (MTypeDecl sym)
+-- A 'class' declaration: insert the class name first, followed by its functions
+processDecl mState sym@(IfaceClass { ifName = name }) =
+  let updMState = addExportDecl mState name (MClassDecl sym)
+  in  Fold.foldl' filterSig updMState (ifSigs sym)
+-- Ingore anything else...
+processDecl occMSymTuple (IfaceForeign _ _) = occMSymTuple
 
-collectExportDecls inOccMSyms decls = Fold.foldl' processDecl inOccMSyms [ d | (_, d) <- decls ]
-  where
-    processDecl :: ModStateT -> IfaceDecl -> ModStateT
-    -- Regular old function or top level identifier
-    processDecl occMSymTuple (IfaceId { ifName = name }) =
-      filterDecl occMSymTuple name MIdDecl
-    -- A 'data' declaration: insert it first, followed by its data type constructors
-    processDecl occMSymTuple sym@(IfaceData { ifName = name }) =
-      let updOccMSymTuple = filterDecl occMSymTuple name (MTypeDecl sym)
-      in  addDataCons updOccMSymTuple (ifCons sym)
-    -- A 'newtype' (synonym) declaration
-    processDecl occMSymTuple sym@(IfaceSyn { ifName = name }) =
-      filterDecl occMSymTuple name (MTypeDecl sym)
-    -- A 'class' declaration: insert the class name first, followed by its functions
-    processDecl occMSymTuple sym@(IfaceClass { ifName = name }) =
-      let updOccMSymTuple = filterDecl occMSymTuple name (MClassDecl sym)
-      in  Fold.foldl' filterSig updOccMSymTuple (ifSigs sym)
-    -- Ingore anything else...
-    processDecl occMSymTuple (IfaceForeign _ _) = occMSymTuple
-
--- | Process
-filterDecl :: ModStateT -> OccName -> ModDecl -> ModStateT
-filterDecl mstate name sym =
+-- | Capture declarations in which we're interested
+addExportDecl :: ModStateT -> OccName -> ModDecl -> ModStateT
+addExportDecl mstate name sym =
   let nameStr  = mkRdrUnqual name
       eSet     = exportSyms mstate
       msymMap  = modSyms mstate
@@ -362,10 +353,10 @@ filterDecl mstate name sym =
         else mstate
 
 addDataCons :: ModStateT -> IfaceConDecls -> ModStateT
-addDataCons occMSymTuple IfAbstractTyCon = occMSymTuple
-addDataCons occMSymTuple IfOpenDataTyCon = occMSymTuple
-addDataCons occMSymTuple (IfDataTyCon conDecls) = Fold.foldl' filterCon occMSymTuple conDecls
-addDataCons occMSymTuple (IfNewTyCon newTyDecl) =             filterCon occMSymTuple newTyDecl
+addDataCons mState IfAbstractTyCon = mState
+addDataCons mState IfOpenDataTyCon = mState
+addDataCons mState (IfDataTyCon conDecls) = Fold.foldl' filterCon mState conDecls
+addDataCons mState (IfNewTyCon newTyDecl) =             filterCon mState newTyDecl
 
 filterCon :: ModStateT -> IfaceConDecl -> ModStateT
 filterCon mstate c@(IfCon { ifConOcc = name }) =
@@ -406,9 +397,8 @@ getInterfaceFile m =
     let iface              = findAndReadIface empty m False
         gblEnv             = IfGblEnv { if_rec_types = Nothing }
         ifaceLoader hscEnv = liftIO $ initTcRnIf  'a' hscEnv gblEnv () iface
-        returnIFace result = case result of
-                              Maybes.Succeeded mIface -> return (Just mIface)
-                              _otherwise              -> return Nothing
+        returnIFace (Maybes.Succeeded mIface) = return (Just mIface)
+        returnIFace _                         = return Nothing
     in getSession >>= ifaceLoader >>= returnIFace
 
 -- | Fabricate a module name that can be easily detected as bogus. The main source
@@ -418,3 +408,94 @@ getInterfaceFile m =
 unknownModule :: ModuleName
               -> Module
 unknownModule = mkModule unknownPackageId
+
+-- | Update a module's type constructor cache. This function extracts the current typechecked module's
+-- type constrctors and stashes the resulting completion tuples in the session's module cache. N.B.:
+-- we assume that the current typecheck completed successfully, although that particular case is
+-- handled by @extractHomeModuleTyCons@. 
+updateHomeModuleTyCons :: Maybe BgTcCache
+                       -> ModuleCache
+                       -> ScionM ModuleCache
+updateHomeModuleTyCons tychk mCache =
+  let mcd = case Map.lookup theMod mCache of
+              (Just msyms) -> msyms
+              Nothing      -> emptyModCacheData
+      theMod  = case tychk of
+                  (Just (Typechecked tcm)) -> (getPMModule . tm_parsed_module) tcm
+                  (Just (Parsed pm))       -> getPMModule pm
+                  Nothing                  -> error "updateHomeModuleTyCons: no module for type check?"
+      getPMModule pm = (ms_mod . pm_mod_summary) pm
+  in  return $ Map.insert theMod (mcd { tyCons = extractHomeModuleTyCons tychk }) mCache
+      
+-- | Fix missing symbols in the Prelude because GHC treats these symbols differently.
+fixPrelude :: Module
+           -> ModStateT
+           -> ModStateT
+fixPrelude m mState
+  | moduleName m == mkModuleName "Prelude"
+  = (boolDecl . charDecl . floatDecl . doubleDecl . intDecl . seqDecl . errorDecl) mState 
+  | otherwise
+  = mState
+  where
+    seqDecl origMState    = addExportDecl origMState (mkVarOcc "seq") MIdDecl
+    errorDecl origMState  = addExportDecl origMState (mkVarOcc "error") MIdDecl
+    boolDecl origMState   = 
+      let updMState = addExportDecl origMState boolOccName (MTypeDecl (mkVanillaType "Bool"))
+      in  addDataCons updMState (IfDataTyCon [trueConDeclData, falseConDeclData])
+    charDecl origMState   = addExportDecl origMState (mkTcOcc "Char") (MTypeDecl (mkVanillaType "Char"))
+    floatDecl origMState  = addExportDecl origMState (mkTcOcc "Float") (MTypeDecl (mkVanillaType "Float"))
+    doubleDecl  origMState = addExportDecl origMState (mkTcOcc "Double") (MTypeDecl (mkVanillaType "Double"))
+    intDecl  origMState = addExportDecl origMState (mkTcOcc "Int") (MTypeDecl (mkVanillaType "Int"))
+    
+    boolOccName           = mkTcOcc "Bool"
+    trueConDeclData       = mkVanillaCon "True"
+    falseConDeclData      = mkVanillaCon "False"
+    
+    mkVanillaType n = IfaceData {
+        ifName = mkTcOcc n
+      , ifTyVars = []
+      , ifCtxt = []
+      , ifCons = IfAbstractTyCon -- note: just a dummy, ignored value
+      , ifRec = NonRecursive
+      , ifGadtSyntax = False
+      , ifGeneric = False
+      , ifFamInst = Nothing
+      }
+    mkVanillaCon n = IfCon {
+        ifConOcc = mkDataOcc n
+      , ifConWrapper = False
+      , ifConInfix = False
+      , ifConUnivTvs = []
+      , ifConExTvs = []
+      , ifConEqSpec = []
+      , ifConCtxt = []
+      , ifConArgTys = []
+      , ifConFields = []
+      , ifConStricts = []
+      }
+    -- ["Bool","Char","Double","False","Float","Int","True","error","seq"]
+  
+-- | Get the type names for the current source in the background typecheck cache,
+-- both local and imported from modules.
+extractHomeModuleTyCons :: Maybe BgTcCache -> CompletionTuples
+extractHomeModuleTyCons tychk = localTypes tychk
+  where
+    -- Types local to the current source
+    localTypes (Just (Typechecked tcm)) = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
+    localTypes (Just (Parsed pm))       = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
+    localTypes Nothing                  = error "Bad pattern match in extractHomeModuleTyCons/localTypes"
+    -- Output format is a tuple ("type","module")
+    formatInfo modname ty = (formatTyDecl ty, modname)
+    -- The stuff you have to go through just to get the module's name... :-)
+    getTcmModuleName tcm = (getModuleName . tm_parsed_module) tcm
+    getModuleName pm     = (moduleNameString . moduleName . ms_mod . pm_mod_summary) pm
+    -- Format a type declaration
+    formatTyDecl :: (Outputable t) => TyClDecl t -> String
+    formatTyDecl (TyFamily { tcdLName = name })  = formatTyName name
+    formatTyDecl (TyData { tcdLName = name })    = formatTyName name
+    formatTyDecl (TySynonym { tcdLName = name }) = formatTyName name
+    -- Theoretically, this is never matched
+    formatTyDecl _ = error "Bad filtering in cmdTypeNames"
+    -- Type name formattter
+    formatTyName :: (Outputable e) => Located e -> String
+    formatTyName = (showSDocUnqual . ppr . unLoc)

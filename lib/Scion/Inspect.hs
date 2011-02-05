@@ -27,13 +27,11 @@ module Scion.Inspect
   ) where
 
 import Scion.Ghc
-import Scion.Utils()
 import Scion.Inspect.Find
 import Scion.Inspect.TypeOf
 import Scion.Types.Notes
 import Scion.Types.Outline
 import Scion.Types
-import Scion.Session()
 
 import DynFlags
 import ErrUtils

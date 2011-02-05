@@ -42,6 +42,7 @@ import PprTyThing ( pprTypeForUser )
 import qualified Outputable as O ( (<+>),alwaysQualify,neverQualify,text )
 
 import Control.Applicative
+import Control.Monad
 import Data.List ( nub )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )
@@ -731,6 +732,14 @@ cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
 cmdCompletionTypeCons :: Cmd
-cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ modsM
+cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ cmd
   where
-    modsM fname = filePathToProjectModule fname >>= getTyConCompletions
+    currentModTyCons (Just modSum) =
+      getSessionSelector moduleCache
+      >>= (\mCache -> case M.lookup (ms_mod modSum) mCache of
+                        Just mcd  -> return $ tyCons mcd
+                        Nothing   -> return [])
+    currentModTyCons Nothing = return []
+    allTyCons projMod = liftM2 (++) (getTyConCompletions projMod) (currentModTyCons projMod)
+    cmd fname = filePathToProjectModule fname
+                >>= allTyCons

@@ -352,11 +352,10 @@ backgroundTypecheckFile fname0 = do
               modifySessionState (\s -> s { bgTcCache = Nothing
                                           , lastCompResult = mempty })
               return $ Left "Could not find file in module graph."
-            Just modsum -> do
-              modifySessionState $ \sess ->
-                  sess { focusedModule = Just modsum}
+            Just modsum -> 
+              modifySessionState (\sess -> sess { focusedModule = Just modsum})
               --(_, rslt) <- setContextForBGTC modsum
-              backgroundTypecheckFile' mempty fname
+              >> backgroundTypecheckFile' mempty fname
               --if compilationSucceeded rslt
               -- assume we are in the right component already
               --  then backgroundTypecheckFile' rslt fname
@@ -380,13 +379,19 @@ backgroundTypecheckFile fname0 = do
               full_comp_rslt <- removeMessagesForFile abs_fname =<< getSessionSelector lastCompResult
               let comp_rslt' =  full_comp_rslt `mappend` comp_rslt `mappend` res
               
-              case tc_res of
-                Just (Typechecked tcm) -> updateMCacheFromTypecheck (tm_parsed_module tcm)
-                Just (Parsed pm)       -> updateMCacheFromTypecheck pm
-                Nothing                -> return ()
+              -- Update modules and names for IDE completion support, when there's a valid
+              -- result
+              updModCache <-
+                case tc_res of
+                  Just (Typechecked tcm) -> updateMCacheFromTypecheck (tm_parsed_module tcm)
+                                            >>= updateHomeModuleTyCons tc_res
+                  Just (Parsed pm)       -> updateMCacheFromTypecheck pm
+                                            >>= updateHomeModuleTyCons tc_res
+                  Nothing                -> getSessionSelector moduleCache
 
               modifySessionState (\s -> s { bgTcCache = tc_res
-                                          , lastCompResult = comp_rslt' })
+                                          , lastCompResult = comp_rslt'
+                                          , moduleCache = updModCache })
 
               return $ Right comp_rslt'
 

@@ -2,12 +2,10 @@
 
 module Scion.Inspect.Completions
   ( getTyConCompletions
-  , updateModulesFromTypecheck
   )
 where
 
 import Scion.Types
-import Scion.Inspect
 import Scion.Inspect.IFaceLoader
 
 -- GHC's imports
@@ -16,13 +14,12 @@ import HscTypes
 import Outputable
 import RdrName
 
-import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.List as List
 
 -- | Generate the completions for type constructors
 getTyConCompletions :: Maybe ModSummary
-                    -> ScionM [(String, String)]
+                    -> ScionM CompletionTuples
                     
 getTyConCompletions (Just modSum) =
   let impDecls        = map unLoc $ ms_imps modSum
@@ -31,8 +28,8 @@ getTyConCompletions (Just modSum) =
       -- Catch the GHC source error exception when a module doesn't appear to be loaded
       modLookup mName = gcatch (lookupModule mName Nothing >>= (\m -> return m ))
                                (\(_ :: SourceError) -> return (unknownModule mName))
-  
-  in  getInnerModules >>= (\curMods -> withSessionState $ generateTyConCompletions (ms_mod modSum) curMods)
+      generateCompletions curMods = withSessionState $ generateTyConCompletions (ms_mod modSum) curMods
+  in  getInnerModules >>= generateCompletions
 
 getTyConCompletions Nothing = return []
 
@@ -40,22 +37,19 @@ getTyConCompletions Nothing = return []
 generateTyConCompletions :: Module
                          -> [Module]
                          -> SessionState
-                         -> ScionM [(String, String)]
+                         -> ScionM CompletionTuples
 generateTyConCompletions topMod depMods session =
   let mCache = moduleCache session
       usedMods = Map.filterWithKey (\k _ -> k `List.elem` depMods) mCache
       filteredMods :: Map.Map Module ModSymData
       filteredMods   = filterMods hasMTypeDecl usedMods
 
-      topModCompletions = extractCurrentSourceTyCons topMod
-      
       impDecls = case Map.lookup topMod mCache of
                   (Just struct) -> importDecls struct
                   Nothing       -> undefined
       modDecls = zip depMods impDecls
       depmodCompletions = concatMap (formatModSymData filteredMods onlyIETypeThings) modDecls
-      completions = topModCompletions ++ depmodCompletions
-  in  return completions
+  in  return depmodCompletions
 
 -- | Filter predicate for extracting type constructors from an import entity
 onlyIETypeThings :: (IE RdrName) -> Bool
@@ -74,7 +68,7 @@ filterMods declPred modCache = Map.map filterModCacheData modCache
 formatModSymData :: Map.Map Module ModSymData
                  -> (IE RdrName -> Bool)
                  -> (Module, ImportDecl RdrName)
-                 -> [(String, String)]
+                 -> CompletionTuples
 formatModSymData modMap iePred (m, idecl) = 
   let modName = (moduleNameString . moduleName) m
       formatModSyms =
@@ -96,7 +90,7 @@ formatModSymData modMap iePred (m, idecl) =
 formatModSym :: ImportDecl RdrName            -- ^ The import declaration, for symbol qualifiers, etc.
              -> String                        -- ^ The module name, as a string
              -> RdrName                       -- ^ The symbol to format
-             -> [(String, String)]            -- ^ [(symbol, original module)] result
+             -> CompletionTuples              -- ^ [(symbol, original module)] result
 formatModSym idecl modName sym = 
   let rawSymName = (showSDoc . ppr) sym
       symName
@@ -142,28 +136,3 @@ symIsMember _hideFlag (Exact  _) _names = undefined
 
 -- Can't do much with 'Exact' names
 symIsMember hideFlag sym ((Exact _):names) = symIsMember hideFlag sym names
-
--- | Get the type names for the current source in the background typecheck cache,
--- both local and imported from modules.
-extractCurrentSourceTyCons :: Module -> [(String,String)]
-extractCurrentSourceTyCons m = localTypes m
-  where
-    -- Types local to the current source
-    localTypes (Just (Typechecked tcm)) = map ((formatInfo (getTcmModuleName tcm)) . unLoc) $ typeDecls tcm
-    localTypes (Just (Parsed pm))       = map (formatInfo (getModuleName pm)) $ typeDeclsParsed pm
-    localTypes Nothing                  = error "Bad pattern match in extractCurrentSourceTyCons/localTypes"
-    -- Output format is a tuple ("type","module")
-    formatInfo modname ty = (formatTyDecl ty, modname)
-    -- The stuff you have to go through just to get the module's name... :-)
-    getTcmModuleName tcm = (getModuleName . tm_parsed_module) tcm
-    getModuleName pm     = (moduleNameString . moduleName . ms_mod . pm_mod_summary) pm
-    -- Format a type declaration
-    formatTyDecl :: (Outputable t) => TyClDecl t -> String
-    formatTyDecl (TyFamily { tcdLName = name })  = formatTyName name
-    formatTyDecl (TyData { tcdLName = name })    = formatTyName name
-    formatTyDecl (TySynonym { tcdLName = name }) = formatTyName name
-    -- Theoretically, this is never matched
-    formatTyDecl _ = error "Bad filtering in cmdTypeNames"
-    -- Type name formattter
-    formatTyName :: (Outputable e) => Located e -> String
-    formatTyName = (showSDocUnqual . ppr . unLoc)

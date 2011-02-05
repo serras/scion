@@ -89,7 +89,10 @@ data SessionState
         -- ^ Source code locations.
         
       moduleCache :: ModuleCache,
-        -- ^ Module and name cache to support IDE completions
+        -- ^ Module and name cache to support IDE completions. We cache both package modules and
+        -- home modules. For home modules, the cached data represents "last known good"
+        -- state of a module so that we have something to give the user; GHC is very unforgiving
+        -- if a module doesn't parse or typecheck correctly.
 
       client :: String
         -- ^ can be set by the client. Only used by vim to enable special hack
@@ -459,6 +462,7 @@ data ModCacheData =
     lastModTime :: IO ClockTime         -- ^ Last modified time for Haskell interface files 
   , modSymData  :: ModSymData           -- ^ Module symbol data
   , importDecls :: [ImportDecl RdrName] -- ^ Import declarations for home modules
+  , tyCons      :: CompletionTuples     -- ^ Last known good type constructor completion tuples
   }
 
 -- | Associations between symbol name and declaration data
@@ -508,6 +512,8 @@ instance Show ModDecl where
   show (MClassDecl a) = showSDoc $ text "MClassDecl" <+> ppr (ifName a)
   show (MClassOp (IfaceClassOp a _ _)) = showSDoc $ text "MClassOp" <+> ppr a 
   
+type CompletionTuples = [(String, String)]
+  
 emptyModuleCache :: ModuleCache
 emptyModuleCache = Map.empty
 
@@ -517,6 +523,7 @@ emptyModCacheData =
     lastModTime = return (TOD 0 0)
   , modSymData  = Map.empty
   , importDecls = []
+  , tyCons      = []
   }
 
 -- | Make a new module cache record
@@ -526,6 +533,7 @@ mkModCacheData fpath msymData =
     lastModTime = getModificationTime fpath
   , modSymData  = msymData
   , importDecls = []
+  , tyCons      = []
   }
 
 -- Various predicates for 'ModDeclSymbols'
