@@ -106,11 +106,27 @@ generateDepModuleInfo pm = getInnerModules >>= depImportsModules
     thisModSum        = pm_mod_summary pm
     thisMod           = ms_mod thisModSum
     impDecls          = map unLoc $ ms_imps thisModSum
-    innerModNames     = map (unLoc . ideclName) impDecls
-    getInnerModules   = mapM modLookup innerModNames
+    initialModNames   = map (unLoc . ideclName) impDecls
+    -- Ensure that Prelude is part of the list of modules scanned
+    innerModNames     = if preludeModName `List.notElem` initialModNames
+                          then preludeModName:initialModNames
+                          else initialModNames 
+    -- Change Prelude's package ID to make it easier to lookup later, if lookupModule
+    -- found Prelude in a package more specific than "base".
+    fixModulePkg m
+      | moduleName m == preludeModName
+      = mkModule basePackageId (moduleName m)
+      | otherwise
+      = m
+    fixModulePkgs mods = return $ map fixModulePkg mods  
+    getInnerModules   = mapM modLookup innerModNames >>= fixModulePkgs
     -- Catch the GHC source error exception when a module doesn't appear to be loaded
     modLookup mName = gcatch (lookupModule mName Nothing)
                              (\(_ :: SourceError) -> return (unknownModule mName))
+
+-- | Handy reference to Prelude's module name
+preludeModName :: ModuleName
+preludeModName    = mkModuleName "Prelude"
 
 -- | Examine the incoming module list, read interface files if needed, return the updated module cache
 updateModules :: [Module]
@@ -165,7 +181,7 @@ moduleChanged m modTime = getSession >>= compareMTimes
 modDebugMsg :: Module
             -> String
             -> ScionM ()
-modDebugMsg m msg = message Verbose (msg ++ ((moduleNameString . moduleName) m))
+modDebugMsg m msg = message Verbose (showSDoc $ text msg <+> ppr m)
 
 -- | Find and load the Haskell interface file, extracting its exports and correlating them
 -- with the declarations. Note that the interface's export list only tells us the names of

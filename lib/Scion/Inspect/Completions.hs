@@ -13,9 +13,17 @@ import GHC
 import HscTypes
 import Outputable
 import RdrName
+import Module
 
 import qualified Data.Map as Map
 import qualified Data.List as List
+
+-- | The Prelude's module name (handy for working on Prelude-related stuff)
+preludeModName :: ModuleName
+preludeModName  = mkModuleName "Prelude"
+
+preludeMod :: Module
+preludeMod = mkModule basePackageId preludeModName
 
 -- | Generate the completions for type constructors
 getTyConCompletions :: Maybe ModSummary
@@ -41,7 +49,7 @@ generateTyConCompletions :: Module
 generateTyConCompletions topMod depMods session =
   let mCache = moduleCache session
       usedMods = Map.filterWithKey (\k _ -> k `List.elem` depMods) mCache
-      filteredMods :: Map.Map Module ModSymData
+      -- filteredMods :: Map.Map Module ModSymData
       filteredMods   = filterMods hasMTypeDecl usedMods
 
       impDecls = case Map.lookup topMod mCache of
@@ -49,7 +57,11 @@ generateTyConCompletions topMod depMods session =
                   Nothing       -> undefined
       modDecls = zip depMods impDecls
       depmodCompletions = concatMap (formatModSymData filteredMods onlyIETypeThings) modDecls
-  in  return depmodCompletions
+      
+      preludeCompletions  = if preludeModName `List.notElem` [ moduleName m | m <- depMods ]
+                              then implicitPreludeTyCons mCache
+                              else []
+  in  return (depmodCompletions ++ preludeCompletions)
 
 -- | Filter predicate for extracting type constructors from an import entity
 onlyIETypeThings :: (IE RdrName) -> Bool
@@ -136,3 +148,11 @@ symIsMember _hideFlag (Exact  _) _names = undefined
 
 -- Can't do much with 'Exact' names
 symIsMember hideFlag sym ((Exact _):names) = symIsMember hideFlag sym names
+
+implicitPreludeTyCons :: ModuleCache
+                      -> CompletionTuples
+implicitPreludeTyCons mCache =
+  let msyms = case Map.lookup preludeMod mCache of
+                (Just mcd) -> Map.filter hasMTypeDecl (modSymData mcd)
+                Nothing    -> Map.empty
+  in  [ ((showSDoc . ppr) name, "Prelude") | name <- Map.keys msyms ]
