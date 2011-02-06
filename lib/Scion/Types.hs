@@ -545,3 +545,11 @@ hasMTypeDecl decls =
   let hasMTypeDecl' (MTypeDecl _) = True
       hasMTypeDecl' _             = False
   in Fold.and $ Set.map hasMTypeDecl' decls
+
+-- | Does the mod declarations have a 'MIdDecl'?
+hasMIdDecl :: ModSymDecls
+           -> Bool
+hasMIdDecl decls =
+  let hasMIdDecl' MIdDecl = True
+      hasMIdDecl' _       = False
+  in  Fold.and $ Set.map hasMIdDecl' decls

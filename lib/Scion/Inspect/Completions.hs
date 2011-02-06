@@ -1,7 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Scion.Inspect.Completions
-  ( getTyConCompletions
+  ( getTypeCompletions
+  , getVarIdCompletions
   )
 where
 
@@ -25,50 +26,56 @@ preludeModName  = mkModuleName "Prelude"
 preludeMod :: Module
 preludeMod = mkModule basePackageId preludeModName
 
--- | Generate the completions for type constructors
-getTyConCompletions :: Maybe ModSummary
+-- | Generate the completions for types
+getTypeCompletions :: Maybe ModSummary
                     -> ScionM CompletionTuples
-                    
-getTyConCompletions (Just modSum) =
+getTypeCompletions (Just modSum) = generateCompletions modSum onlyIETypeThings hasMTypeDecl
+getTypeCompletions Nothing = return []
+
+-- | Generate the completions for varIds
+getVarIdCompletions :: Maybe ModSummary
+                    -> ScionM CompletionTuples
+getVarIdCompletions (Just modSum) = generateCompletions modSum onlyIEVarIdThings hasMIdDecl
+getVarIdCompletions Nothing = return []
+
+-- | The main workhorse for generating completion tuples
+generateCompletions :: ModSummary
+                    -> (IE RdrName -> Bool)
+                    -> (ModSymDecls -> Bool)
+                    -> ScionM CompletionTuples
+generateCompletions modSum ieFunc modSymFunc =                     
   let impDecls        = map unLoc $ ms_imps modSum
       innerModNames   = map (unLoc . ideclName) impDecls
       getInnerModules = mapM modLookup innerModNames
       -- Catch the GHC source error exception when a module doesn't appear to be loaded
       modLookup mName = gcatch (lookupModule mName Nothing >>= (\m -> return m ))
                                (\(_ :: SourceError) -> return (unknownModule mName))
-      generateCompletions curMods = withSessionState $ generateTyConCompletions (ms_mod modSum) curMods
-  in  getInnerModules >>= generateCompletions
-
-getTyConCompletions Nothing = return []
+      getCompletionTuples curMods = 
+        withSessionState $ generateCompletionTuples (ms_mod modSum) curMods ieFunc modSymFunc
+  in  getInnerModules >>= getCompletionTuples
 
 -- | Look through the module map and scan for completions
-generateTyConCompletions :: Module
+generateCompletionTuples :: Module
                          -> [Module]
+                         -> (IE RdrName -> Bool)
+                         -> (ModSymDecls -> Bool)
                          -> SessionState
                          -> ScionM CompletionTuples
-generateTyConCompletions topMod depMods session =
+generateCompletionTuples topMod depMods ieFunc modSymFunc session =
   let mCache = moduleCache session
       usedMods = Map.filterWithKey (\k _ -> k `List.elem` depMods) mCache
-      -- filteredMods :: Map.Map Module ModSymData
-      filteredMods   = filterMods hasMTypeDecl usedMods
+      filteredMods   = filterMods modSymFunc usedMods
 
       impDecls = case Map.lookup topMod mCache of
                   (Just struct) -> importDecls struct
-                  Nothing       -> undefined
+                  Nothing       -> error "Completions/generateCompletionTuples: topMod not found!"
       modDecls = zip depMods impDecls
-      depmodCompletions = concatMap (formatModSymData filteredMods onlyIETypeThings) modDecls
+      depmodCompletions = concatMap (formatModSymData filteredMods ieFunc) modDecls
       
       preludeCompletions  = if preludeModName `List.notElem` [ moduleName m | m <- depMods ]
-                              then implicitPreludeTyCons mCache
+                              then implicitPreludeModSyms mCache modSymFunc
                               else []
   in  return (depmodCompletions ++ preludeCompletions)
-
--- | Filter predicate for extracting type constructors from an import entity
-onlyIETypeThings :: (IE RdrName) -> Bool
-onlyIETypeThings (IEThingAbs _)    = True
-onlyIETypeThings (IEThingAll _)    = True
-onlyIETypeThings (IEThingWith _ _) = True
-onlyIETypeThings _                 = False
 
 filterMods :: (ModSymDecls -> Bool)
            -> ModuleCache
@@ -149,10 +156,24 @@ symIsMember _hideFlag (Exact  _) _names = undefined
 -- Can't do much with 'Exact' names
 symIsMember hideFlag sym ((Exact _):names) = symIsMember hideFlag sym names
 
-implicitPreludeTyCons :: ModuleCache
+implicitPreludeModSyms :: ModuleCache
+                      -> (ModSymDecls -> Bool)
                       -> CompletionTuples
-implicitPreludeTyCons mCache =
+implicitPreludeModSyms mCache filterFunc =
   let msyms = case Map.lookup preludeMod mCache of
-                (Just mcd) -> Map.filter hasMTypeDecl (modSymData mcd)
+                (Just mcd) -> Map.filter filterFunc (modSymData mcd)
                 Nothing    -> Map.empty
   in  [ ((showSDoc . ppr) name, "Prelude") | name <- Map.keys msyms ]
+
+
+-- | Filter predicate for extracting type constructors from an import entity
+onlyIETypeThings :: (IE RdrName) -> Bool
+onlyIETypeThings (IEThingAbs _)    = True
+onlyIETypeThings (IEThingAll _)    = True
+onlyIETypeThings (IEThingWith _ _) = True
+onlyIETypeThings _                 = False
+
+-- | Filter predicate for extracting variable identifiers from an import entity
+onlyIEVarIdThings :: (IE RdrName) -> Bool
+onlyIEVarIdThings (IEVar _) = True
+onlyIEVarIdThings _         = False

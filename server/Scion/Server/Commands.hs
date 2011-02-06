@@ -187,7 +187,8 @@ allCommands =
     , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
-    , cmdCompletionTypeCons
+    , cmdCompletionTypes
+    , cmdCompletionVarIds
     ]
 
 ------------------------------------------------------------------------------
@@ -731,8 +732,8 @@ cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
-cmdCompletionTypeCons :: Cmd
-cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ cmd
+cmdCompletionTypes :: Cmd
+cmdCompletionTypes = Cmd "completion-types" $ fileNameArg $ cmd
   where
     currentModTyCons (Just modSum) =
       getSessionSelector moduleCache
@@ -740,6 +741,14 @@ cmdCompletionTypeCons = Cmd "completion-tycons" $ fileNameArg $ cmd
                         Just mcd  -> return $ tyCons mcd
                         Nothing   -> return [])
     currentModTyCons Nothing = return []
-    allTyCons projMod = liftM2 (++) (getTyConCompletions projMod) (currentModTyCons projMod)
+    allTyCons projMod = liftM2 (++) (getTypeCompletions projMod) (currentModTyCons projMod)
+    
     cmd fname = filePathToProjectModule fname
                 >>= allTyCons
+
+cmdCompletionVarIds :: Cmd
+cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ cmd
+  where
+    cmd fname = filePathToProjectModule fname
+                >>= getVarIdCompletions
+                
