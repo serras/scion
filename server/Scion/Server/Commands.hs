@@ -102,7 +102,7 @@ handleRequest req@(JSObject _) =
       dispatch method params seq_id = 
         if method /= Dic.quit
           then case M.lookup (S.toString method) allCmds of
-                Nothing                 -> return (unknownCommand seq_id, True)
+                Nothing                 -> return (unknownCommand seq_id method, True)
                 Just (Cmd _ arg_parser) -> decode_params params arg_parser seq_id
           else return (quitReply seq_id, False)
 
@@ -119,13 +119,13 @@ malformedRequest = Dic.makeObject
     [(Dic.name, str "MalformedRequest")
     ,(Dic.message, str "Request was not a proper request object.")])]
 
-unknownCommand :: JSValue -> JSValue
-unknownCommand seq_id = Dic.makeObject
+unknownCommand :: JSValue -> S.ByteString -> JSValue
+unknownCommand seq_id method= Dic.makeObject
  [(Dic.version, JSString Dic.version01)
  ,(Dic.id, seq_id)
  ,(Dic.error, Dic.makeObject
     [(Dic.name, str "UnknownCommand")
-    ,(Dic.message, str "The requested method is not supported.")])]
+    ,(Dic.message, str $ "The requested method '"++ (S.toString method) ++"' is not supported.")])]
 
 paramParseError :: JSValue -> String -> JSValue
 paramParseError seq_id msg = Dic.makeObject
@@ -751,4 +751,3 @@ cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ cmd
   where
     cmd fname = filePathToProjectModule fname
                 >>= getVarIdCompletions
-                
