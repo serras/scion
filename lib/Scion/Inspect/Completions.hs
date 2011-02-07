@@ -23,9 +23,6 @@ import qualified Data.List as List
 preludeModName :: ModuleName
 preludeModName  = mkModuleName "Prelude"
 
-preludeMod :: Module
-preludeMod = mkModule basePackageId preludeModName
-
 -- | Generate the completions for types
 getTypeCompletions :: Maybe ModSummary
                     -> ScionM CompletionTuples
@@ -68,7 +65,20 @@ generateCompletionTuples topMod depMods ieFunc modSymFunc session =
 
       impDecls = case Map.lookup topMod mCache of
                   (Just struct) -> importDecls struct
-                  Nothing       -> error "Completions/generateCompletionTuples: topMod not found!"
+                  -- This is a punt: If we have an empty import declaration list, assume we should
+                  -- "import" symbols from all modules. This may not actually be correct, but it
+                  -- offers the user something.
+                  Nothing       -> map (dummyImportDecl . moduleName) depMods
+                  
+      dummyImportDecl m = ImportDecl {
+          ideclName = noLoc m
+        , ideclPkgQual = Nothing
+        , ideclSource = False
+        , ideclQualified = False
+        , ideclAs = Nothing
+        , ideclHiding = Nothing
+        }
+        
       modDecls = zip depMods impDecls
       depmodCompletions = concatMap (formatModSymData filteredMods ieFunc) modDecls
       
@@ -163,6 +173,7 @@ implicitPreludeModSyms mCache filterFunc =
   let msyms = case Map.lookup preludeMod mCache of
                 (Just mcd) -> Map.filter filterFunc (modSymData mcd)
                 Nothing    -> Map.empty
+      preludeMod = mkModule basePackageId preludeModName
   in  [ ((showSDoc . ppr) name, "Prelude") | name <- Map.keys msyms ]
 
 

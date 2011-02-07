@@ -19,7 +19,7 @@ module Scion.Inspect
   , toplevelNames, outline
   , tokensArbitrary
   , tokenTypesArbitrary
-  , tokenArbitraryAtPoint, tokenArbitraryPreceding
+  , tokenArbitraryAtPoint, tokensArbitraryPreceding
   {- , visibleConstructors -}
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
@@ -49,10 +49,9 @@ import qualified Outputable as O ( (<>), empty, dot )
 import Data.Data
 import Data.Generics.Biplate
 import qualified Data.Generics.Str as U 
-import Data.List (sortBy,isPrefixOf)
+import qualified Data.List as List
 import Data.Ord (comparing)
 -- import Data.Maybe
-import Data.List ( foldl' )
 
 -- import Debug.Trace (trace)
 
@@ -64,7 +63,6 @@ import StringBuffer
 --import FastString
 import Test.QuickCheck()
 import Test.GHC.Gen()
-
 
 --import Debug.Trace
 --import StaticFlags ( initStaticOpts )
@@ -204,7 +202,7 @@ mkOutlineDef base_dir (L sp (ClassDecl {tcdLName = cls_name, tcdSigs = sigs})) =
     (o1:os)
 mkOutlineDef base_dir (L sp t) = 
   let
-    tN = foldl' (\tn (f, result) -> 
+    tN = List.foldl' (\tn (f, result) -> 
                      if null tn 
                      then if (f t) 
                           then result
@@ -290,27 +288,6 @@ mkOutlineDef' _ _ = []
 -- Completion support
 -- =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
 
-{-
-visibleConstructors :: FilePath
-                    -> BgTcCache
-                    -> [SDoc]
-
-Hold onto this: will need it for converting a data type name into its constructor alternatives 
-visibleConstructors projectRoot (Typechecked mod) =
-  let srcgroup = renamedSourceGroup `fmap` renamedSource mod
-      getDataTypes (Just grp) = [ t | (L _ t) <- hs_tyclds grp, isDataDecl t ]
-      getDataTypes Nothing    = []
-      iterCTors (TyData { tcdCons = lConsList }) = [ (formatCtor . unLoc) i | i <- lConsList]
-      iterCTors _ = []
-      formatCtor (ConDecl { con_name = name, con_qvars = vars }) =
-        (ppr . unLoc) name <+> interppSP [ unLoc i | i <- vars ]
-  in  concatMap iterCTors (getDataTypes srcgroup)
-
-visibleConstructors projectRoot (Parsed mod) = [O.text "!!foobars!!"]
--}
-
-
-
 {- FIXME: unused
 tokens :: FilePath -> Module -> ScionM ([TokenDef])
 tokens base_dir m = do
@@ -335,7 +312,7 @@ ghctokensArbitrary base_dir contents = do
         --setActiveComponent comp
         --setComponentDynFlags comp
         dflags0 <- getSessionDynFlags
-        let dflags1 = foldl' dopt_set dflags0 lexerFlags
+        let dflags1 = List.foldl' dopt_set dflags0 lexerFlags
         --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
         let prTS = lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
         --setSessionDynFlags dflags0
@@ -390,29 +367,29 @@ tokenTypesArbitrary projectRoot contents literate = generateTokens projectRoot c
     convertTokens = map (tokenToType projectRoot)
 
 -- | Extract the lexer token preceding the line/column location.  
-tokenArbitraryPreceding :: FilePath    -- ^ Project root or base directory for absolute path conversion
-                           -> String   -- ^ Contents to be parsed
-                           -> Int      -- ^ Line
-                           -> Int      -- ^ Column
-                           -> Bool     -- ^ Literate source flag (True = literate, False = ordinary)
-                           -> ScionM (Either Note TokenDef)
-tokenArbitraryPreceding projectRoot contents line column literate =
+tokensArbitraryPreceding :: FilePath     -- ^ Project root or base directory for absolute path conversion
+                           -> String    -- ^ Contents to be parsed
+                           -> Int       -- ^ Number of tokens to return
+                           -> Int       -- ^ Line
+                           -> Int       -- ^ Column
+                           -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
+                           -> ScionM (Either Note [TokenDef])
+tokensArbitraryPreceding projectRoot contents ntoks line column literate =
   let -- Convert line/column to a token location
       tokLocation = mkLocPointForSource interactive line column
-      -- The undefined/unknown token to indicate failure
-      undefToken = TokenDef (mkTokenName (ITunknown "")) (mkNoLoc "no token")
-      -- Filter tokens to find token preceding specified location
-      tokenPreceding = tokenPreceding' undefToken
-      -- The function that actually extracts the preceding token
-      tokenPreceding' :: TokenDef -> [TokenDef] -> TokenDef
-      tokenPreceding' tok [] = tok
-      tokenPreceding' precToken (tok:toks)
-        | TokenDef _ span <- tok
-        , tokLocation <= span || overlapLoc tokLocation span
-        = precToken
-        | otherwise
-        = tokenPreceding' tok toks
-  in generateHaskellLexerTokens projectRoot contents literate tokenPreceding
+      -- Get the list of tokens up to the token that overlaps the specified location
+      tokensPreceding :: [TokenDef] -> [TokenDef]
+      tokensPreceding toks = 
+        let prefix = takeWhile beforeTok toks
+            prefixLen = length prefix
+            requiredPrefixLen
+              | prefixLen > ntoks
+              = prefixLen - ntoks
+              | otherwise
+              = prefixLen
+        in  drop requiredPrefixLen prefix
+      beforeTok (TokenDef _ span) = (tokLocation >= span) || overlapLoc tokLocation span
+  in generateHaskellLexerTokens projectRoot contents literate tokensPreceding
   
 tokenArbitraryAtPoint :: FilePath -- ^ Project root or base directory for absolute path conversion
                       -> String   -- ^ Contents to be parsed
@@ -448,10 +425,10 @@ generateTokens projectRoot contents literate xform filterFunc =
        >>= (\result ->
              case result of 
                Right toks ->
-                 let filterResult = filterFunc $ sortBy (comparing td_loc) (ppTs ++ (xform toks))
+                 let filterResult = filterFunc $ List.sortBy (comparing td_loc) (ppTs ++ (xform toks))
                  --liftIO $ putStrLn $ show tokenList
                  in return $ Right filterResult
-               Left n-> return $ Left n
+               Left n -> return $ Left n
            )
 
 -- | A variation on generateTokens, which produces a TokenDef list of Haskell lexer tokens
@@ -490,13 +467,13 @@ preprocessSource contents literate=
         where 
                 ppSF contents2 p= let
                         linesWithCount=zip (lines contents2) [1..]
-                        (ts,nc,_)=foldl' p ([],[],False) linesWithCount
+                        (ts,nc,_)= List.foldl' p ([],[],False) linesWithCount
                         in (reverse ts,unlines $ reverse nc)
                 ppSCpp :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
                 ppSCpp (ts2,l2,f) (l,c) 
                         | f = addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l))
                         | ('#':_)<-l =addPPToken "PP" (l,c) (ts2,l2,'\\' == (last l)) 
-                        | ("{-# LINE" `isPrefixOf` l)=addPPToken "D" (l,c) (ts2,l2,False) 
+                        | ("{-# LINE" `List.isPrefixOf` l)=addPPToken "D" (l,c) (ts2,l2,False) 
                         | otherwise =(ts2,l:l2,False)
                 ppSLit :: ([TokenDef],[String],Bool) -> (String,Int) -> ([TokenDef],[String],Bool)
                 ppSLit (ts2,l2,f) (l,c) 

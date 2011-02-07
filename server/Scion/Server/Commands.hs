@@ -628,11 +628,10 @@ cmdTokenAtPoint =
 cmdTokenPreceding :: Cmd
 cmdTokenPreceding =
   Cmd "token-preceding" $ cmdArgs tokenPreceding
-  where cmdArgs = docContentsArg <&> lineColumnArgs <&> literateFlagOpt
-        -- tokPrecWork :: String -> Int -> Int -> Bool -> ScionM (Either Note TokenDef)
-        tokenPreceding contents line column literate =
+  where cmdArgs = docContentsArg <&> optArg "numTokens" (1 :: Int) <&> lineColumnArgs <&> literateFlagOpt 
+        tokenPreceding contents numToks line column literate =
           projectRootDir
-          >>= (\rootDir -> tokenArbitraryPreceding rootDir contents line column literate)
+          >>= (\rootDir -> tokensArbitraryPreceding rootDir contents numToks line column literate)
 
 cmdTokenTypes :: Cmd
 cmdTokenTypes =
@@ -751,4 +750,3 @@ cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ cmd
   where
     cmd fname = filePathToProjectModule fname
                 >>= getVarIdCompletions
-                

@@ -70,8 +70,8 @@ type DepModuleInfo = (Module, [Module])
 
 -- | Get the list of modules associated with the type-checked source, updating the module cache
 -- as needed.
-updateMCacheFromTypecheck :: ParsedModule          -- ^ The parsed module
-                           -> ScionM ModuleCache
+updateMCacheFromTypecheck :: ParsedModule           -- ^ The parsed module
+                           -> ScionM ModuleCache    -- ^ The updated module cache
 updateMCacheFromTypecheck pm = generateDepModuleInfo pm >>= updateModuleCache
 
 -- | Update the module cache
@@ -82,21 +82,22 @@ updateModuleCache (impDecls, (topMod, depMods)) =
       >>= updateModules depMods
       >>= updateImpDecls topMod impDecls
 
--- | Update the scion-server session's module cache.
-updateImpDecls :: Module
-               -> [ImportDecl RdrName]
-               -> ModuleCache
-               -> ScionM ModuleCache
+-- | Update a home module's associated import declaration list. Note: This only applies to home, i.e., not external pacakge,
+-- modules. Returns the updated module cache, where information about this module resides.
+updateImpDecls :: Module                -- ^ The home module 
+               -> [ImportDecl RdrName]  -- ^ The import declarations list
+               -> ModuleCache           -- ^ The associated module cache
+               -> ScionM ModuleCache    -- ^ The updated module cache
 updateImpDecls topMod impDecls mCache = return $ Map.insert topMod (struct { importDecls = impDecls }) mCache
   where
     struct  = case Map.lookup topMod mCache of
                 (Just mdata) -> mdata
                 Nothing      -> emptyModCacheData
 
--- | Extract the modules referenced by the current parsed module, returning
+-- | Extract the modules referenced by the parsed module, returning
 -- the primary module's data and a list of the dependent modules
-generateDepModuleInfo :: ParsedModule              -- ^ The current module
-                      -> ScionM ([ImportDecl RdrName], DepModuleInfo)
+generateDepModuleInfo :: ParsedModule                                 -- ^ The parsed module
+                      -> ScionM ([ImportDecl RdrName], DepModuleInfo) -- ^ Returned import declarations and dependent modules
                          -- ^ Primary module, dependent modules list
 generateDepModuleInfo pm = getInnerModules >>= depImportsModules
   where
@@ -129,9 +130,9 @@ preludeModName :: ModuleName
 preludeModName    = mkModuleName "Prelude"
 
 -- | Examine the incoming module list, read interface files if needed, return the updated module cache
-updateModules :: [Module]
-              -> ModuleCache
-              -> ScionM ModuleCache
+updateModules :: [Module]             -- ^ The dependent module list
+              -> ModuleCache          -- ^ The original/incoming module cache
+              -> ScionM ModuleCache   -- ^ The updated module cache
 
 updateModules [] mCache = return mCache
 updateModules (m:mods) mCache
@@ -139,7 +140,7 @@ updateModules (m:mods) mCache
   = modDebugMsg m "Ignoring "
     >> updateModules mods mCache
   | mainPackageId == (modulePackageId m)
-  = modDebugMsg m "Adding (main) "
+  = modDebugMsg m "Adding (main/home) "
     >> cacheHomePackageModule m mCache
     >>= updateModules mods
   | Nothing <- Map.lookup m mCache
@@ -162,10 +163,9 @@ unknownPackageId :: PackageId
 unknownPackageId = stringToPackageId "*unknown*"
   
 -- Predicate for detecting if the module's time/date stamp has changed
-moduleChanged :: Module
-              -> IO ClockTime
-              -> ScionM Bool
-
+moduleChanged :: Module         -- ^ The module to test
+              -> IO ClockTime   -- ^ Existing last-modified time of the module
+              -> ScionM Bool    -- ^ The result
 moduleChanged m modTime = getSession >>= compareMTimes
   where
     compareMTimes hsc = liftIO (findExactModule hsc m >>= checkMTimes)
