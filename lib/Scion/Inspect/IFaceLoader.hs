@@ -510,6 +510,7 @@ extractHomeModuleTyCons tychk = localTypes tychk
     formatTyDecl (TyFamily { tcdLName = name })  = formatTyName name
     formatTyDecl (TyData { tcdLName = name })    = formatTyName name
     formatTyDecl (TySynonym { tcdLName = name }) = formatTyName name
+    formatTyDecl (ClassDecl { tcdLName = name }) = formatTyName name
     -- Theoretically, this is never matched
     formatTyDecl _ = error "Bad filtering in cmdTypeNames"
     -- Type name formattter
