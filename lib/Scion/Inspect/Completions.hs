@@ -99,7 +99,7 @@ formatModSymData :: Map.Map Module ModSymData
                  -> (Module, ImportDecl RdrName)
                  -> CompletionTuples
 formatModSymData modMap iePred (m, idecl) = 
-  let modName = (moduleNameString . moduleName) m
+  let modName = moduleName m
       formatModSyms =
         case ideclHiding idecl of
           Just (hideFlag, decls) ->
@@ -117,21 +117,20 @@ formatModSymData modMap iePred (m, idecl) =
         Nothing      -> []
         
 formatModSym :: ImportDecl RdrName            -- ^ The import declaration, for symbol qualifiers, etc.
-             -> String                        -- ^ The module name, as a string
+             -> ModuleName                    -- ^ The module name, as a string
              -> RdrName                       -- ^ The symbol to format
              -> CompletionTuples              -- ^ [(symbol, original module)] result
 formatModSym idecl modName sym = 
-  let rawSymName = (showSDoc . ppr) sym
-      symName
+  let symName
         | (Just asModName) <- ideclAs idecl
         -- "import ... as <foo>"
-        = (moduleNameString asModName) ++ "." ++ rawSymName
+        = (ppr asModName) <> text "." <> (ppr sym)
         -- "import qualified <mod>" 
         | ideclQualified idecl
-        = modName ++ "." ++ rawSymName
+        = (ppr modName) <> text "." <> (ppr sym)
         | otherwise
-        = rawSymName
-  in  [(symName, modName)]
+        = ppr sym
+  in  [(showSDoc symName, (showSDoc . ppr) modName)]
 
 symIsMember :: Bool
             -> RdrName
