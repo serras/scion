@@ -189,6 +189,7 @@ allCommands =
     , cmdModuleGraph
     , cmdCompletionTypes
     , cmdCompletionVarIds
+    , cmdOccurrences
     ]
 
 ------------------------------------------------------------------------------
@@ -633,6 +634,15 @@ cmdTokenPreceding =
           projectRootDir
           >>= (\rootDir -> tokensArbitraryPreceding rootDir contents numToks line column literate)
 
+cmdOccurrences :: Cmd
+cmdOccurrences =
+  Cmd "occurrences" $ cmdArgs tokenPreceding
+  where cmdArgs = docContentsArg <&> reqArg "query" <&> literateFlagOpt 
+        tokenPreceding contents query literate =
+          projectRootDir
+          >>= (\rootDir -> occurrences rootDir contents query literate)
+
+
 cmdTokenTypes :: Cmd
 cmdTokenTypes =
      Cmd "token-types" $ docContentsArg <&> literateFlagOpt $ cmd
@@ -693,6 +703,8 @@ cmdNameDefinitions =
   where cmd nm = do
           db <- getSessionSelector defSiteDB
           let nms=comps nm
+          --liftIO $ putStrLn $ last nms
+          --liftIO $ putStrLn $ show $ map (\(_,b)->showSDocForUser alwaysQualify $ ppr $ getName b) $ lookupDefSite db (last nms)
           return $ map fst
                 $ filter (\(_,b)->nm == showSDocForUser alwaysQualify (ppr $ getName b))
                 $ lookupDefSite db (last nms)

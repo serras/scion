@@ -20,6 +20,7 @@ module Scion.Inspect
   , tokensArbitrary
   , tokenTypesArbitrary
   , tokenArbitraryAtPoint, tokensArbitraryPreceding
+  , occurrences
   {- , visibleConstructors -}
   , module Scion.Inspect.Find
   , module Scion.Inspect.TypeOf
@@ -412,6 +413,25 @@ tokenArbitraryAtPoint projectRoot contents line column literate =
         = tokenAtPoint toks
   in generateHaskellLexerTokens projectRoot contents literate tokenAtPoint 
 
+
+-- | Extract occurrences based on lexing  
+occurrences :: FilePath     -- ^ Project root or base directory for absolute path conversion
+                           -> String    -- ^ Contents to be parsed
+                           -> String    -- ^ Token value to find
+                           -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
+                           -> ScionM (Either Note [TokenDef])
+occurrences projectRoot contents query literate = 
+  let -- Get the list of tokens matching the queru for relevant token types
+      tokensMatching :: [TokenDef] -> [TokenDef]
+      tokensMatching = filter matchingVal
+      matchingVal :: TokenDef -> Bool
+      matchingVal (TokenDef v _)=query==v
+      mkTokenDef (L sp t)=TokenDef (tokenValue t) (ghcSpanToLocation projectRoot sp)
+  in generateTokens projectRoot contents literate (map mkTokenDef) tokensMatching
+  --(Right toks)<-generateTokens projectRoot contents literate (map mkTokenDef) id
+  --liftIO $ putStrLn $ show $ filter (\(TokenDef v _)->not $ null $ v) toks
+  --return $ Right $ tokensMatching toks
+
 -- | Parse the current document, generating a TokenDef list, filtered by a function
 generateTokens :: FilePath                        -- ^ The project's root directory
                -> String                          -- ^ The current document contents, to be parsed
@@ -749,3 +769,18 @@ tokenType  (ITdocOptions {})="D"    -- doc options (prune, ignore-exports, etc)
 tokenType  (ITdocOptionsOld {})="D"     -- doc options declared "-- # ..."-style
 tokenType  (ITlineComment {})="D"     -- comment starting by "--"
 tokenType  (ITblockComment {})="D"     -- comment in {- -}
+
+tokenValue :: Token -> String
+tokenValue t | elem (tokenType t) ["K","EK"]=drop 2 $ mkTokenName t
+tokenValue (ITvarid a)=unpackFS a
+tokenValue (ITconid a)=unpackFS a
+tokenValue (ITvarsym a)=unpackFS a
+tokenValue (ITconsym a)=unpackFS a
+tokenValue (ITqvarid (_,a))=unpackFS a
+tokenValue (ITqconid (_,a))=unpackFS a
+tokenValue (ITqvarsym (_,a))=unpackFS a
+tokenValue (ITqconsym (_,a))=unpackFS a
+tokenValue (ITprefixqvarsym (_,a))=unpackFS a
+tokenValue (ITprefixqconsym (_,a))=unpackFS a
+tokenValue _ = ""
+
