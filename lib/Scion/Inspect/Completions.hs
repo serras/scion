@@ -3,6 +3,7 @@
 module Scion.Inspect.Completions
   ( getTypeCompletions
   , getVarIdCompletions
+  , getClassTypeNameCompletions
   )
 where
 
@@ -34,6 +35,12 @@ getVarIdCompletions :: Maybe ModSummary
                     -> ScionM CompletionTuples
 getVarIdCompletions (Just modSum) = generateCompletions modSum onlyIEVarIdThings hasMIdDecl
 getVarIdCompletions Nothing = return []
+
+-- | Generate the completions for class type names
+getClassTypeNameCompletions :: Maybe ModSummary
+                            -> ScionM CompletionTuples
+getClassTypeNameCompletions (Just modSum) = generateCompletions modSum onlyIEClassThings hasMClassDecl
+getClassTypeNameCompletions Nothing = return []
 
 -- | The main workhorse for generating completion tuples
 generateCompletions :: ModSummary
@@ -187,3 +194,9 @@ onlyIETypeThings _                 = False
 onlyIEVarIdThings :: (IE RdrName) -> Bool
 onlyIEVarIdThings (IEVar _) = True
 onlyIEVarIdThings _         = False
+
+-- | Filter predicate for extracting class type names from import entities
+
+-- N.B.: 
+onlyIEClassThings :: (IE RdrName) -> Bool
+onlyIEClassThings = onlyIETypeThings

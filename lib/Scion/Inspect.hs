@@ -416,10 +416,10 @@ tokenArbitraryAtPoint projectRoot contents line column literate =
 
 -- | Extract occurrences based on lexing  
 occurrences :: FilePath     -- ^ Project root or base directory for absolute path conversion
-                           -> String    -- ^ Contents to be parsed
-                           -> String    -- ^ Token value to find
-                           -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
-                           -> ScionM (Either Note [TokenDef])
+            -> String    -- ^ Contents to be parsed
+            -> String    -- ^ Token value to find
+            -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
+            -> ScionM (Either Note [TokenDef])
 occurrences projectRoot contents query literate = 
   let -- Get the list of tokens matching the queru for relevant token types
       tokensMatching :: [TokenDef] -> [TokenDef]

@@ -84,7 +84,7 @@ resetSessionState :: ScionM ()
 resetSessionState =
    unload
    >> getSessionSelector initialDynFlags
-   >>= (\dflags0 -> setSessionDynFlags (initialScionDynFlags dflags0))
+   >>= (setSessionDynFlags . initialScionDynFlags)
    >> return ()
 
 -- | Root directory of the current Cabal project.
@@ -116,8 +116,7 @@ setComponentDynFlags ::
        -- build-depends of the loaded component.
        --
        -- TODO: do something with this depending on Scion mode?
-setComponentDynFlags (Component c) = do
-  addCmdLineFlags =<< componentOptions c
+setComponentDynFlags (Component c) = addCmdLineFlags =<< componentOptions c
 
 -- | Set the targets for a 'GHC.load' command from the meta data of
 -- the current component.
@@ -130,8 +129,7 @@ setComponentDynFlags (Component c) = do
 --    contain the specified component.
 -- 
 setComponentTargets :: Component -> ScionM ()
-setComponentTargets (Component c) = do
-  setTargets =<< componentTargets c
+setComponentTargets (Component c) = setTargets =<< componentTargets c
 
 -- | Load the specified component.
 -- 
@@ -143,13 +141,12 @@ setComponentTargets (Component c) = do
 --    contain the specified component.
 -- 
 loadComponent :: Component
-	      -> ScionM CompilationResult
+	            -> ScionM CompilationResult
 loadComponent comp = loadComponent' comp defaultLoadOptions
 
 loadComponent' :: Component
-	       -> LoadOptions -- ^ Should we build on disk?, etc
-               -> ScionM CompilationResult
-                  -- ^ The compilation result.
+	             -> LoadOptions                 -- ^ Should we build on disk?, etc
+               -> ScionM CompilationResult    -- ^ The compilation result.
 loadComponent' comp options = do
    -- TODO: group warnings by file
    resetSessionState
@@ -159,14 +156,17 @@ loadComponent' comp options = do
    _ <- setComponentDynFlags comp
    dflags0 <- getSessionDynFlags
    let dflags1
-         | lo_output options = dflags0{ hscTarget = defaultObjectTarget
-                          , ghcMode = CompManager
-                          , ghcLink = LinkBinary
-                          }
-         | otherwise = dflags0
+         | lo_output options
+         = dflags0 {
+              hscTarget = defaultObjectTarget
+            , ghcMode = CompManager
+            , ghcLink = LinkBinary
+            }
+         | otherwise
+         = dflags0
    -- DefinitionSite is not up to date if we have pregenerated .hi or .o files 
    let dflags
-        | lo_forcerecomp options=dopt_set dflags1 Opt_ForceRecomp
+        | lo_forcerecomp options =dopt_set dflags1 Opt_ForceRecomp
         | otherwise = dflags1
    _ <- setSessionDynFlags dflags
    _ <- setComponentTargets comp
@@ -178,7 +178,7 @@ loadComponent' comp options = do
 -- | Utility method to regenerate defSiteDB after loading.
 getDefSiteDB :: CompilationResult -- ^ The result of loading.
              -> ScionM ()
-getDefSiteDB rslt = do
+getDefSiteDB rslt =
    getModuleGraph
    >>= (\mg ->
           projectRootDir
@@ -211,7 +211,7 @@ setActiveComponent the_comp@(Component comp) = do
        modifySessionState $ \sess -> 
            sess { activeComponent = Just the_comp }
      Just msg -> do
-       liftIO $ throwIO $ userError msg -- XXX
+       liftIO $ throwIO $ userError msg
   where
    needs_unloading (Just c) | c /= the_comp = True
    needs_unloading _ = False
@@ -391,7 +391,8 @@ backgroundTypecheckFile fname0 = do
 
               modifySessionState (\s -> s { bgTcCache = tc_res
                                           , lastCompResult = comp_rslt'
-                                          , moduleCache = updModCache })
+                                          , moduleCache = updModCache
+                                          } )
 
               return $ Right comp_rslt'
 

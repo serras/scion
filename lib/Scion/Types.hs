@@ -553,3 +553,11 @@ hasMIdDecl decls =
   let hasMIdDecl' MIdDecl = True
       hasMIdDecl' _       = False
   in  Fold.and $ Set.map hasMIdDecl' decls
+
+-- | Does the mod declaration set have a 'MClassDecl'?
+hasMClassDecl :: ModSymDecls
+              -> Bool
+hasMClassDecl decls =
+  let hasMClassDecl' (MClassDecl _) = True
+      hasMClassDecl' _              = False
+  in  Fold.and $ Set.map hasMClassDecl' decls

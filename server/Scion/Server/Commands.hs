@@ -189,6 +189,7 @@ allCommands =
     , cmdModuleGraph
     , cmdCompletionTypes
     , cmdCompletionVarIds
+    , cmdCompletionClassTypeNames
     , cmdOccurrences
     ]
 
@@ -743,6 +744,10 @@ cmdDumpNameDB :: Cmd
 cmdDumpNameDB =
   Cmd "dump-name-db" $ noArgs $ buildNameDB >>= dumpNameDB >> return ()
 
+-- | Type name completions: generate the list of type names currently visible within the
+-- current module. The IDE is responsible for prefix or name filtering.
+
+-- FIXME: Use focused_mod here, when available, just like what bgTypeCheck does.
 cmdCompletionTypes :: Cmd
 cmdCompletionTypes = Cmd "completion-types" $ fileNameArg $ cmd
   where
@@ -757,8 +762,38 @@ cmdCompletionTypes = Cmd "completion-types" $ fileNameArg $ cmd
     cmd fname = filePathToProjectModule fname
                 >>= allTyCons
 
+-- | Variable id completions: generate the list of variable identifiers currently visible within
+-- the current module. The IDE is responsible for prefix or name filtering.
+
+-- FIXME: Use focused_mod here, when available, mimicing bgTypeCheck.
 cmdCompletionVarIds :: Cmd
-cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ cmd
+cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ generateCompletions getVarIdCompletions
+
+-- | Class type name completions: generate the list of class names currently visible within the
+-- current module. The IDE is repsonsible for prefix or name filering.
+
+-- FIXME: Use focused_mod here, when available, mimicing bgTypeCheck.
+cmdCompletionClassTypeNames :: Cmd
+cmdCompletionClassTypeNames = Cmd "completion-classTypeNames" $ fileNameArg $ generateCompletions getClassTypeNameCompletions
+
+-- | Generate the completion tuple list using a completion function and file name
+generateCompletions :: forall a.
+                      (Maybe ModSummary -> ScionM a)  -- ^ The completion function (see Completions.hs)
+                    -> FilePath                       -- ^ File name, if there is no currently focused module.
+                    -> ScionM a
+generateCompletions completionFunc fpath = withSessionState $ getCompletions fpath
   where
-    cmd fname = filePathToProjectModule fname
-                >>= getVarIdCompletions
+    getCompletions fname scion =
+      case focusedModule scion of
+        modsum@(Just ms) -> validFocusedModuleSource fname (ml_hs_file (ms_location ms)) modsum
+        Nothing -> getCompletionsFromProjectModule fname
+    
+    validFocusedModuleSource fname (Just f) modsum
+      | f == fname
+      = completionFunc modsum
+      | otherwise
+      = getCompletionsFromProjectModule fname
+    validFocusedModuleSource fname Nothing _ = getCompletionsFromProjectModule fname
+    
+    -- Default: If we can't use focusedModule, find the module summary in the module graph
+    getCompletionsFromProjectModule fname = filePathToProjectModule fname >>= completionFunc
