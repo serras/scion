@@ -421,12 +421,14 @@ occurrences :: FilePath     -- ^ Project root or base directory for absolute pat
             -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
             -> ScionM (Either Note [TokenDef])
 occurrences projectRoot contents query literate = 
-  let -- Get the list of tokens matching the queru for relevant token types
+  let 
+      qualif = elem '.' query
+      -- Get the list of tokens matching the query for relevant token types
       tokensMatching :: [TokenDef] -> [TokenDef]
       tokensMatching = filter matchingVal
       matchingVal :: TokenDef -> Bool
       matchingVal (TokenDef v _)=query==v
-      mkTokenDef (L sp t)=TokenDef (tokenValue t) (ghcSpanToLocation projectRoot sp)
+      mkTokenDef (L sp t)=TokenDef (tokenValue qualif t) (ghcSpanToLocation projectRoot sp)
   in generateTokens projectRoot contents literate (map mkTokenDef) tokensMatching
   --(Right toks)<-generateTokens projectRoot contents literate (map mkTokenDef) id
   --liftIO $ putStrLn $ show $ filter (\(TokenDef v _)->not $ null $ v) toks
@@ -770,17 +772,23 @@ tokenType  (ITdocOptionsOld {})="D"     -- doc options declared "-- # ..."-style
 tokenType  (ITlineComment {})="D"     -- comment starting by "--"
 tokenType  (ITblockComment {})="D"     -- comment in {- -}
 
-tokenValue :: Token -> String
-tokenValue t | elem (tokenType t) ["K","EK"]=drop 2 $ mkTokenName t
-tokenValue (ITvarid a)=unpackFS a
-tokenValue (ITconid a)=unpackFS a
-tokenValue (ITvarsym a)=unpackFS a
-tokenValue (ITconsym a)=unpackFS a
-tokenValue (ITqvarid (_,a))=unpackFS a
-tokenValue (ITqconid (_,a))=unpackFS a
-tokenValue (ITqvarsym (_,a))=unpackFS a
-tokenValue (ITqconsym (_,a))=unpackFS a
-tokenValue (ITprefixqvarsym (_,a))=unpackFS a
-tokenValue (ITprefixqconsym (_,a))=unpackFS a
-tokenValue _ = ""
+tokenValue :: Bool -> Token -> String
+tokenValue _ t | elem (tokenType t) ["K","EK"]=drop 2 $ mkTokenName t
+tokenValue _ (ITvarid a)=unpackFS a
+tokenValue _ (ITconid a)=unpackFS a
+tokenValue _ (ITvarsym a)=unpackFS a
+tokenValue _ (ITconsym a)=unpackFS a
+tokenValue False (ITqvarid (_,a))=unpackFS a
+tokenValue True (ITqvarid (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue False(ITqconid (_,a))=unpackFS a
+tokenValue True (ITqconid (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue False (ITqvarsym (_,a))=unpackFS a
+tokenValue True (ITqvarsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue False (ITqconsym (_,a))=unpackFS a
+tokenValue True (ITqconsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue False (ITprefixqvarsym (_,a))=unpackFS a
+tokenValue True (ITprefixqvarsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue False (ITprefixqconsym (_,a))=unpackFS a
+tokenValue True (ITprefixqconsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue _ _= ""
 
