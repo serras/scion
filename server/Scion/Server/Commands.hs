@@ -478,7 +478,10 @@ cmdCabalDependencies =
     Cmd "cabal-dependencies" $ reqArg' "cabal-file" S.toString $ cmd
   where cmd cabal_file = do
         dep<- cabalDependencies cabal_file
-        return (JSArray $ map (\(x,y)->Dic.makeObject [(S.fromString x,JSArray $ map toJSON y)]) dep) 
+        case dep of
+                Left err->return $ Left err
+                Right depArr -> return $ Right $ 
+                        (JSArray $ map (\(x,y)->Dic.makeObject [(S.fromString x,JSArray $ map toJSON y)]) depArr) 
   
 -- return all cabal configurations.
 -- currently this just globs for * /setup-config

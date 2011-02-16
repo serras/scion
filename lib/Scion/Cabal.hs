@@ -54,7 +54,6 @@ import Distribution.InstalledPackageInfo
 import Distribution.Version
 
 import qualified Distribution.PackageDescription.Parse as PD
-import qualified Distribution.PackageDescription.Configuration as PD
 
 import Distribution.Simple.Configure
 import Distribution.PackageDescription.Parse
@@ -120,8 +119,15 @@ cabalComponentInit :: CabalComponent -> ScionM (Maybe String)
 cabalComponentInit c = do
   -- TODO: verify that components exist in cabal file
   let cabal_file = cabalFile c
+  r<-cabalInit cabal_file
+  return $ case r of
+        Left err-> Just err
+        Right _ ->Nothing
+  
+cabalInit :: FilePath -> ScionM (Either String LocalBuildInfo)  
+cabalInit cabal_file = do
   ok <- liftIO $ doesFileExist cabal_file
-  if not ok then return (Just ".cabal file does not exist") else do
+  if not ok then return (Left ".cabal file does not exist") else do
    let root_dir = dropFileName cabal_file
    let setup_config = localBuildInfoFile (root_dir </> scionDistDir)
    conf'd <- liftIO $ doesFileExist setup_config
@@ -142,13 +148,21 @@ cabalComponentInit c = do
             do_configure root_dir
           Just _lbi -> do
             setWorkingDir root_dir
-            return Nothing
+            return $ Right _lbi
  where
    do_configure root_dir = do
      r <- gtry $ configureCabalProject root_dir scionDistDir []
      case r of
-       Left (err :: IOException) -> return (Just (show err))
-       Right _ -> return Nothing
+       Left (err :: IOException) -> return (Left (show err))
+       Right lbi -> return $ Right lbi
+
+withCabal :: FilePath -> (LocalBuildInfo -> ScionM (a))-> ScionM (Either String a)  
+withCabal cabal_file f=do
+        r<-cabalInit cabal_file
+        case r of
+                Left err-> return $ Left err
+                Right lbi ->liftM Right (f lbi)
+                
 
 --cabalFile :: CabalComponent -> FilePath
 --cabalFile (Library f) = f
@@ -244,11 +258,11 @@ cabalDynFlags component = do
 --    does not exist or could not be parsed.).
 -- 
 cabalProjectComponents :: FilePath -- ^ The .cabal file
-                       -> ScionM [Component]
+                       -> ScionM (Either String [Component])
 cabalProjectComponents cabal_file = do
-    gpd <- cabalParse cabal_file
-    let pd = PD.flattenPackageDescription gpd
-    return $ map Component $ cabalComponentsFromDescription cabal_file pd
+    withCabal cabal_file (
+        return . map Component . cabalComponentsFromDescription cabal_file . localPkgDescr
+        )
 
 cabalComponentsFromDescription :: FilePath -> PD.PackageDescription -> [CabalComponent]
 cabalComponentsFromDescription cabal_file pd= 
@@ -264,13 +278,14 @@ cabalParse cabal_file = do
     return gpd
 
 {--runScion $ cabalDependencies "D:\\dev\\haskell\\jp-github\\runtime-New_configuration\\Haskell0\\Haskell0.cabal"--}
-cabalDependencies :: FilePath -> ScionM [(FilePath,[CabalPackage])]
-cabalDependencies cabal_file = do
-    gpd <- cabalParse cabal_file
-    ghandle (\(e :: IOError) ->
+cabalDependencies :: FilePath -> ScionM (Either String [(FilePath,[CabalPackage])])
+cabalDependencies cabal_file = 
+     withCabal cabal_file (\lbi-> do
+        ghandle (\(e :: IOError) ->
                liftIO $ throwIO $ CannotListPackages $ show e) $ do
             pkgs<-liftIO $ getPkgInfos
-            return $ dependencies cabal_file gpd pkgs
+            return $ dependencies cabal_file (localPkgDescr lbi) pkgs
+            )
     
     {--        
 dependencies :: FilePath -> PD.GenericPackageDescription -> [(FilePath,[InstalledPackageInfo])] -> [(FilePath,[CabalPackage])]
@@ -300,10 +315,9 @@ dependencies cabal_file gpd pkgs=let
                         in getDep xs deps2 (CabalPackage (display $ pkgName i) (display $ pkgVersion i) e (map fst ds): acc) -- build CabalPackage structure
         --}
         
-dependencies :: FilePath -> PD.GenericPackageDescription -> [(FilePath,[InstalledPackageInfo])] -> [(FilePath,[CabalPackage])]
-dependencies cabal_file gpd pkgs=let
+dependencies :: FilePath -> PD.PackageDescription -> [(FilePath,[InstalledPackageInfo])] -> [(FilePath,[CabalPackage])]
+dependencies cabal_file pd pkgs=let
         pkgsMap=foldr buildPkgMap DM.empty pkgs -- build the map of package by name with ordered version (more recent first)
-        pd = PD.flattenPackageDescription gpd
         allC= cabalComponentsFromDescription cabal_file pd
         gdeps=PD.buildDepends pd
         cpkgs=concat $ DM.elems $ DM.map (\ipis->getDep allC ipis gdeps []) pkgsMap
@@ -416,7 +430,7 @@ configureCabalProject ::
               -- files.
   -> [String] -- ^ command line arguments to "configure". [XXX:
               -- currently ignored!]
-  -> ScionM ()
+  -> ScionM (LocalBuildInfo)
 configureCabalProject root_dir dist_dir _extra_args = do
    cabal_file <- find_cabal_file
    gen_pkg_descr <- liftIO $ readPackageDescription V.normal cabal_file
@@ -444,7 +458,7 @@ configureCabalProject root_dir dist_dir _extra_args = do
      liftIO $ writePersistBuildConfig dist_dir lbi
      liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal
                             knownSuffixHandlers
-
+     return lbi
  where
    find_cabal_file = do
       fs <- liftIO $ getDirectoryContents root_dir

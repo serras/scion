@@ -9,6 +9,7 @@ import Data.Maybe
 
 import qualified Distribution.PackageDescription as PD
 import qualified Distribution.PackageDescription.Parse as PD
+import qualified Distribution.PackageDescription.Configuration as PD
 import Distribution.InstalledPackageInfo
 import Distribution.Package
 import Distribution.Text
@@ -33,9 +34,9 @@ sampleCabalContents=unlines [
         --"  build-depends: mtl"
         ]
 
-sampleCabal :: PD.GenericPackageDescription
+sampleCabal :: PD.PackageDescription
 sampleCabal = case PD.parsePackageDescription sampleCabalContents of
-                ParseOk _ pd->pd
+                ParseOk _ pd->PD.flattenPackageDescription pd
                 ParseFailed err -> error $ show err
 
 cabalFileName :: FilePath
@@ -98,11 +99,12 @@ testDependenciesOneComponent=TestLabel "testDependenciesOneComponent" (TestCase 
 testDependenciesTwoComponents :: Test
 testDependenciesTwoComponents=TestLabel "testDependenciesTwoComponents" (TestCase (
         do
-        let ParseOk _ pd=PD.parsePackageDescription (sampleCabalContents ++ (unlines [
+        let ParseOk _ gpd=PD.parsePackageDescription (sampleCabalContents ++ (unlines [
                 "executable sample",
                 "  main-is:  Main.hs",
                 "  build-depends: mtl"
                 ]))
+        let pd=PD.flattenPackageDescription gpd
         let deps=dependencies cabalFileName pd [("user.pkg",[]),("system.pkg",[testIPI "mtl" "1.0.0.2"])]
         assertEqual "not 2 dbs" 2 (length deps)
         let (user,system)=partition (\(x,_)->x=="user.pkg") deps
