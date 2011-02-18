@@ -94,13 +94,16 @@ data SessionState
         -- state of a module so that we have something to give the user; GHC is very unforgiving
         -- if a module doesn't parse or typecheck correctly.
 
-      client :: String
+      client :: String,
         -- ^ can be set by the client. Only used by vim to enable special hack
+        
+      userFlags :: [(String,Bool)]
+        -- ^ special assignment of Cabal flags, may influence which components are buildable, etc...
     }
 
 mkSessionState :: DynFlags -> IO (IORef SessionState)
 mkSessionState dflags =
-    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty emptyModuleCache "")
+    newIORef (SessionState normal dflags Nothing Nothing mempty Nothing Nothing mempty emptyModuleCache "" mempty)
 
 newtype ScionM a
   = ScionM { unScionM :: IORef SessionState -> Ghc a }

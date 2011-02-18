@@ -191,6 +191,7 @@ allCommands =
     , cmdCompletionVarIds
     , cmdCompletionClassTypeNames
     , cmdOccurrences
+    , cmdSetUserFlags
     ]
 
 ------------------------------------------------------------------------------
@@ -646,6 +647,14 @@ cmdOccurrences =
           projectRootDir
           >>= (\rootDir -> occurrences rootDir contents query literate)
 
+cmdSetUserFlags :: Cmd
+cmdSetUserFlags =
+  Cmd "set-user-flags" $ reqArg "user-flags" <&> reqArg' "cabal-file" S.toString $ cmd
+   where cmd user_flags cabal_file= do
+         modifySessionState $ \sess -> 
+           sess { userFlags = user_flags }
+         cabalClean cabal_file
+         
 
 cmdTokenTypes :: Cmd
 cmdTokenTypes =

@@ -13,7 +13,7 @@
 module Scion.Cabal 
   ( CabalComponent(..), CabalPackage(..),
     scionDistDir, cabalProjectComponents, cabalParse, cabalParseArbitrary, cabalDependencies,
-    cabalConfigurations, preprocessPackage, dependencies )
+    cabalConfigurations, preprocessPackage, dependencies, cabalClean )
   where
 
 import Scion.Types
@@ -36,7 +36,7 @@ import Data.List        ( intercalate,sortBy,partition )
 import Data.Maybe
 import qualified Data.Map as DM
 import System.Directory ( doesFileExist, getDirectoryContents,
-                          getModificationTime )
+                          getModificationTime, removeFile )
 import System.FilePath ( (</>), dropFileName, takeExtension,dropExtension,(<.>) )
 import System.Exit ( ExitCode(..) )
 
@@ -124,6 +124,15 @@ cabalComponentInit c = do
         Left err-> Just err
         Right _ ->Nothing
   
+cabalClean :: FilePath -> ScionM ()
+cabalClean cabal_file = do
+  ok <- liftIO $ doesFileExist cabal_file
+  when ok (do
+     let root_dir = dropFileName cabal_file
+     let setup_config = localBuildInfoFile (root_dir </> scionDistDir)
+     liftIO $ removeFile setup_config
+      )
+  
 cabalInit :: FilePath -> ScionM (Either String LocalBuildInfo)  
 cabalInit cabal_file = do
   ok <- liftIO $ doesFileExist cabal_file
@@ -151,7 +160,7 @@ cabalInit cabal_file = do
             return $ Right _lbi
  where
    do_configure root_dir = do
-     r <- gtry $ configureCabalProject root_dir scionDistDir []
+     r <- gtry $ configureCabalProject root_dir scionDistDir
      case r of
        Left (err :: IOException) -> return (Left (show err))
        Right lbi -> return $ Right lbi
@@ -428,22 +437,22 @@ configureCabalProject ::
      FilePath -- ^ The project root.  (Where the .cabal file resides)
   -> FilePath -- ^ dist dir, i.e., directory where to put generated
               -- files.
-  -> [String] -- ^ command line arguments to "configure". [XXX:
-              -- currently ignored!]
   -> ScionM (LocalBuildInfo)
-configureCabalProject root_dir dist_dir _extra_args = do
+configureCabalProject root_dir dist_dir = do
    cabal_file <- find_cabal_file
    gen_pkg_descr <- liftIO $ readPackageDescription V.normal cabal_file
    let prog_conf =
          userSpecifyPaths [("ghc", ghc), ("ghc-pkg", ghc_pkg)]
            defaultProgramConfiguration
+   user_flags <- getSessionSelector userFlags     
    let config_flags = 
          (defaultConfigFlags prog_conf)
            { configDistPref = Flag dist_dir
            , configVerbosity = Flag V.deafening
            , configUserInstall = Flag True
-           -- TODO: parse flags properly
+           , configConfigurationsFlags = map (\(n,v)->(PD.FlagName n,v)) user_flags
            }
+                   
    setWorkingDir root_dir
    ghandle (\(e :: IOError) ->
                liftIO $ throwIO $ 
