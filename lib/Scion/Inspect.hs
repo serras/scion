@@ -772,6 +772,7 @@ tokenType  (ITdocOptionsOld {})="D"     -- doc options declared "-- # ..."-style
 tokenType  (ITlineComment {})="D"     -- comment starting by "--"
 tokenType  (ITblockComment {})="D"     -- comment in {- -}
 
+dotFS :: FastString
 dotFS = fsLit "."
 
 tokenValue :: Bool -> Token -> String
@@ -794,5 +795,10 @@ tokenValue False (ITprefixqconsym (_,a)) = mkUnqualTokenValue a
 tokenValue True (ITprefixqconsym (q,a)) = mkQualifiedTokenValue q a
 tokenValue _ _= ""
 
+
 mkUnqualTokenValue a = unpackFS a
+
+mkQualifiedTokenValue :: FastString
+                                                 -> FastString
+                                                 -> String
 mkQualifiedTokenValue q a = (unpackFS . concatFS) [q, dotFS, a]

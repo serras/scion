@@ -58,8 +58,7 @@ library
     list-tries,
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
-    old-time     == 1.0.*,
-    derive
+    old-time     == 1.0.*
 
   if flag(cabal_1_8)
     build-depends:
@@ -137,8 +136,7 @@ executable scion-server
     list-tries ,
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
-    old-time     == 1.0.*,
-    derive
+    old-time     == 1.0.*
 
   if flag(cabal_1_8)
     build-depends:
@@ -220,7 +218,6 @@ executable scion-test
     binary       == 0.5.*,
     array        >= 0.2 && < 0.4,
     old-time     == 1.0.*,
-    derive,
     QuickCheck   >= 2,
     HUnit
 

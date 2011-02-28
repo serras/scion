@@ -183,8 +183,8 @@ allCommands =
     , cmdTokenAtPoint
     , cmdTokenPreceding
     , cmdTokenTypes
-    , cmdParseCabal
-    , cmdParseCabalArbitrary
+--    , cmdParseCabal
+--    , cmdParseCabalArbitrary
     , cmdCabalDependencies
     , cmdModuleGraph
     , cmdCompletionTypes
@@ -464,15 +464,15 @@ cmdListCabalComponents =
     Cmd "list-cabal-components" $ reqArg' "cabal-file" S.toString $ cmd
   where cmd cabal_file = cabalProjectComponents cabal_file
 
-cmdParseCabal :: Cmd
-cmdParseCabal = 
-    Cmd "parse-cabal" $ reqArg' "cabal-file" S.toString $ cmd
-  where cmd _cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
-
-cmdParseCabalArbitrary :: Cmd
-cmdParseCabalArbitrary =
-    Cmd "parse-cabal-arbitrary" $ docContentsArg $ cmd
-  where cmd cabal_contents = cabalParseArbitrary cabal_contents
+--cmdParseCabal :: Cmd
+--cmdParseCabal = 
+--    Cmd "parse-cabal" $ reqArg' "cabal-file" S.toString $ cmd
+--  where cmd _cabal_file = return (JSObject M.empty) --liftM toJSON $ cabalParse cabal_file
+--
+--cmdParseCabalArbitrary :: Cmd
+--cmdParseCabalArbitrary =
+--    Cmd "parse-cabal-arbitrary" $ docContentsArg $ cmd
+--  where cmd cabal_contents = cabalParseArbitrary cabal_contents
 
 cmdCabalDependencies :: Cmd
 cmdCabalDependencies = 
