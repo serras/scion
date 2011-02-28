@@ -772,23 +772,27 @@ tokenType  (ITdocOptionsOld {})="D"     -- doc options declared "-- # ..."-style
 tokenType  (ITlineComment {})="D"     -- comment starting by "--"
 tokenType  (ITblockComment {})="D"     -- comment in {- -}
 
+dotFS = fsLit "."
+
 tokenValue :: Bool -> Token -> String
-tokenValue _ t | elem (tokenType t) ["K","EK"]=drop 2 $ mkTokenName t
-tokenValue _ (ITvarid a)=unpackFS a
-tokenValue _ (ITconid a)=unpackFS a
-tokenValue _ (ITvarsym a)=unpackFS a
-tokenValue _ (ITconsym a)=unpackFS a
-tokenValue False (ITqvarid (_,a))=unpackFS a
-tokenValue True (ITqvarid (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
-tokenValue False(ITqconid (_,a))=unpackFS a
-tokenValue True (ITqconid (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
-tokenValue False (ITqvarsym (_,a))=unpackFS a
-tokenValue True (ITqvarsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
-tokenValue False (ITqconsym (_,a))=unpackFS a
-tokenValue True (ITqconsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
-tokenValue False (ITprefixqvarsym (_,a))=unpackFS a
-tokenValue True (ITprefixqvarsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
-tokenValue False (ITprefixqconsym (_,a))=unpackFS a
-tokenValue True (ITprefixqconsym (q,a))=(unpackFS q) ++ "." ++ (unpackFS a)
+tokenValue _ t | elem (tokenType t) ["K","EK"] = drop 2 $ mkTokenName t
+tokenValue _ (ITvarid a) = mkUnqualTokenValue a
+tokenValue _ (ITconid a) = mkUnqualTokenValue a
+tokenValue _ (ITvarsym a) = mkUnqualTokenValue a
+tokenValue _ (ITconsym a) = mkUnqualTokenValue a
+tokenValue False (ITqvarid (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITqvarid (q,a)) = mkQualifiedTokenValue q a
+tokenValue False(ITqconid (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITqconid (q,a)) = mkQualifiedTokenValue q a
+tokenValue False (ITqvarsym (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITqvarsym (q,a))  = mkQualifiedTokenValue q a
+tokenValue False (ITqconsym (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITqconsym (q,a)) = mkQualifiedTokenValue q a
+tokenValue False (ITprefixqvarsym (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITprefixqvarsym (q,a)) = mkQualifiedTokenValue q a
+tokenValue False (ITprefixqconsym (_,a)) = mkUnqualTokenValue a
+tokenValue True (ITprefixqconsym (q,a)) = mkQualifiedTokenValue q a
 tokenValue _ _= ""
 
+mkUnqualTokenValue a = unpackFS a
+mkQualifiedTokenValue q a = (unpackFS . concatFS) [q, dotFS, a]
