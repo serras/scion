@@ -796,9 +796,11 @@ tokenValue True (ITprefixqconsym (q,a)) = mkQualifiedTokenValue q a
 tokenValue _ _= ""
 
 
+mkUnqualTokenValue :: FastString
+                   -> String
 mkUnqualTokenValue a = unpackFS a
 
 mkQualifiedTokenValue :: FastString
-                                                 -> FastString
-                                                 -> String
+                      -> FastString
+                      -> String
 mkQualifiedTokenValue q a = (unpackFS . concatFS) [q, dotFS, a]
