@@ -35,7 +35,11 @@ import Scion.Inspect.Completions
 import Scion.Cabal
 import Scion.Ghc hiding ( (<+>) )
 
+#if __GLASGOW_HASKELL__ < 700
 import DynFlags ( supportedLanguages, allFlags )
+#else
+import DynFlags ( supportedLanguagesAndExtensions, allFlags )
+#endif
 import Exception
 import FastString
 import PprTyThing ( pprTypeForUser )
@@ -58,6 +62,11 @@ import UniqFM ( eltsUFM )
 import Packages ( pkgIdMap )
 
 import Distribution.InstalledPackageInfo
+#endif
+
+#if __GLASGOW_HASKELL__ >= 700
+supportedLanguages :: [String]
+supportedLanguages = supportedLanguagesAndExtensions
 #endif
 
 type KeepGoing = Bool
@@ -152,7 +161,7 @@ allCmds = M.fromList [ (cmdName c, c) | c <- allCommands ]
 allCommands :: [Cmd]
 allCommands =
     [ cmdConnectionInfo
-    , cmdListSupportedLanguages
+    , cmdListsupportedLanguages
     , cmdListSupportedPragmas
     , cmdListSupportedFlags
     , cmdListCabalComponents
@@ -208,7 +217,9 @@ handleScionException m = ((((do
                case e' of
                 Panic _ -> throw e'
                 InstallationError _ -> throw e'
+#if __GLASGOW_HASKELL__ < 700
                 Interrupted -> throw e'
+#endif
                 _ -> return (Error (show e')))
   `gcatch` \(e :: ExitCode) ->
                 -- client code may not exit the server!
@@ -432,8 +443,8 @@ instance JSON OutlineDef where
   fromJSON _ = fail "OutlineDef"
 
 
-cmdListSupportedLanguages :: Cmd
-cmdListSupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd
+cmdListsupportedLanguages :: Cmd
+cmdListsupportedLanguages = Cmd "list-supported-languages" $ noArgs cmd
   where cmd = return (map S.fromString supportedLanguages)
 
 cmdListSupportedPragmas :: Cmd

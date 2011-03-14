@@ -42,10 +42,18 @@ import Bag
 import Var ( varType )
 import qualified Var( varName ) 
 import DataCon ( dataConUserType )
+#if __GLASGOW_HASKELL__ < 700
 import Type ( tidyType )
+#else
+import TcType ( tidyType )
+#endif
 import VarEnv ( emptyTidyEnv )
-import GHC.SYB.Utils()
+
 import qualified Outputable as O ( (<>), empty, dot )
+
+#if __GLASGOW_HASKELL__ < 700
+import GHC.SYB.Utils()
+#endif
 
 import Data.Data
 import Data.Generics.Biplate
@@ -58,6 +66,10 @@ import Data.Ord (comparing)
 
 #if __GLASGOW_HASKELL__ >= 610
 import StringBuffer
+#endif
+
+#if __GLASGOW_HASKELL__ >= 700
+import Util(filterOut)
 #endif
 
 #ifdef SCION_DEBUG
@@ -114,7 +126,12 @@ haddockType _="t"
 typeDecls :: TypecheckedModule -> [LTyClDecl Name]
 typeDecls m =
   let srcgrp = renamedSourceGroup `fmap` renamedSource m
-      typeDecls' (Just grp) = [ t | t <- hs_tyclds grp
+      typeDecls' (Just grp) = [ t
+#if __GLASGOW_HASKELL__ < 700
+                                  | t <- hs_tyclds grp
+#else
+                                  | t <- concat (hs_tyclds grp)
+#endif
                                   , isDataDecl (unLoc t) 
                                   || isTypeDecl (unLoc t) 
                                   || isSynDecl (unLoc t) ]
@@ -137,12 +154,22 @@ typeDeclsParsed pm =
  
 classDecls :: RenamedSource -> [LTyClDecl Name]
 classDecls rn_src =
-    [ t | t <- hs_tyclds (renamedSourceGroup rn_src)
+    [ t 
+#if __GLASGOW_HASKELL__ < 700
+        | t <- hs_tyclds (renamedSourceGroup rn_src)
+#else
+        | t <- concat (hs_tyclds (renamedSourceGroup rn_src))
+#endif
         , isClassDecl (unLoc t) ]
 
 familyDecls :: RenamedSource -> [LTyClDecl Name]
 familyDecls rn_src =
-    [ t | t <- hs_tyclds (renamedSourceGroup rn_src)
+    [ t
+#if __GLASGOW_HASKELL__ < 700
+        | t <- hs_tyclds (renamedSourceGroup rn_src)
+#else
+        | t <- concat (hs_tyclds (renamedSourceGroup rn_src))
+#endif
         , isFamilyDecl (unLoc t) ]
 
 toplevelNames :: BgTcCache -> [SDoc]
@@ -217,6 +244,43 @@ mkOutlineDef base_dir (L sp t) =
                 Nothing
      | L sp2 n <- tyClDeclNames t]
 
+#if __GLASGOW_HASKELL__ >= 700
+-- Taken from http://www.haskell.org/ghc/docs/6.12.2/html/libraries/ghc-6.12.2/src/HsDecls.html#tyClDeclNames
+tyClDeclNames :: Eq name => TyClDecl name -> [Located name]
+-- ^ Returns all the /binding/ names of the decl, along with their SrcLocs.
+-- The first one is guaranteed to be the name of the decl. For record fields
+-- mentioned in multiple constructors, the SrcLoc will be from the first
+-- occurence.  We use the equality to filter out duplicate field names
+
+tyClDeclNames (TyFamily    {tcdLName = name})    = [name]
+tyClDeclNames (TySynonym   {tcdLName = name})    = [name]
+tyClDeclNames (ForeignType {tcdLName = name})    = [name]
+
+tyClDeclNames (ClassDecl {tcdLName = cls_name, tcdSigs = sigs, tcdATs = ats})
+  = cls_name :
+    concatMap (tyClDeclNames . unLoc) ats ++ [n | L _ (TypeSig n _) <- sigs]
+
+tyClDeclNames (TyData {tcdLName = tc_name, tcdCons = cons})
+  = tc_name : hsConDeclsNames cons
+
+-- Taken from http://www.haskell.org/ghc/docs/6.12.2/html/libraries/ghc-6.12.2/src/HsDecls.html#hsConDeclsNames
+hsConDeclsNames :: (Eq name) => [LConDecl name] -> [Located name]
+  -- See tyClDeclNames for what this does
+  -- The function is boringly complicated because of the records
+  -- And since we only have equality, we have to be a little careful
+hsConDeclsNames cons
+  = snd (foldl do_one ([], []) cons)
+  where
+    do_one (flds_seen, acc) (L _ (ConDecl { con_name = lname, con_details = RecCon flds }))
+	= (map unLoc new_flds ++ flds_seen, lname : new_flds ++ acc)
+	where
+	  new_flds = filterOut (\f -> unLoc f `elem` flds_seen)
+			       (map cd_fld_name flds)
+
+    do_one (flds_seen, acc) (L _ (ConDecl { con_name = lname }))
+	= (flds_seen, lname:acc)
+#endif
+
 valBinds :: FilePath -> HsGroup Name -> [OutlineDef]
 valBinds base_dir grp =
     let ValBindsOut bind_grps _sigs = hs_valds grp
@@ -269,7 +333,12 @@ outline ::FilePath       -- ^ The base directory for relative source locations,
         
 outline base_dir (Typechecked mod) =
   let srcgroup = renamedSourceGroup `fmap` renamedSource mod
-      outline' (Just grp) = concatMap (mkOutlineDef base_dir) (hs_tyclds grp)
+      outline' (Just grp) = concatMap (mkOutlineDef base_dir)
+#if __GLASGOW_HASKELL__ < 700
+                                      (hs_tyclds grp)
+#else
+                                      (concat $ hs_tyclds grp)
+#endif
                             ++ valBinds base_dir grp
                             ++ instBinds base_dir grp
       outline' _ = []
@@ -313,7 +382,11 @@ ghctokensArbitrary base_dir contents = do
         --setActiveComponent comp
         --setComponentDynFlags comp
         dflags0 <- getSessionDynFlags
+#if __GLASGOW_HASKELL__ >= 700
+        let dflags1 = List.foldl' xopt_set dflags0 lexerFlags
+#else
         let dflags1 = List.foldl' dopt_set dflags0 lexerFlags
+#endif
         --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
         let prTS = lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
         --setSessionDynFlags dflags0
@@ -321,7 +394,11 @@ ghctokensArbitrary base_dir contents = do
                 POk _ toks      -> return $ Right $ (filter ofInterest toks)
                 PFailed loc msg -> return $ Left $ ghcErrMsgToNote base_dir $ mkPlainErrMsg loc msg
 
+#if __GLASGOW_HASKELL__ >= 700
+lexerFlags :: [ExtensionFlag]
+#else
 lexerFlags :: [DynFlag]
+#endif
 lexerFlags =
         [ Opt_ForeignFunctionInterface
         , Opt_PArr
@@ -331,7 +408,9 @@ lexerFlags =
         , Opt_ImplicitParams
         , Opt_BangPatterns
         , Opt_TypeFamilies
+#if __GLASGOW_HASKELL__ < 700
         , Opt_Haddock
+#endif
         , Opt_MagicHash
         , Opt_KindSignatures
         , Opt_RecursiveDo
@@ -648,7 +727,7 @@ tokenType  ITusing= "EK"
 
         -- Pragmas
 tokenType  (ITinline_prag {})="P"          -- True <=> INLINE, False <=> NOINLINE
-#if __GLASGOW_HASKELL__ >= 612
+#if __GLASGOW_HASKELL__ >= 612 && __GLASGOW_HASKELL__ < 700 
 tokenType  (ITinline_conlike_prag {})="P"  -- same
 #endif
 tokenType  ITspec_prag="P"                 -- SPECIALISE   
@@ -662,7 +741,7 @@ tokenType  ITscc_prag="P"
 tokenType  ITgenerated_prag="P"
 tokenType  ITcore_prag="P"                 -- hdaume: core annotations
 tokenType  ITunpack_prag="P"
-#if __GLASGOW_HASKELL__ >= 612
+#if __GLASGOW_HASKELL__ >= 612 && __GLASGOW_HASKELL__ < 700 
 tokenType  ITann_prag="P"
 #endif
 tokenType  ITclose_prag="P"
@@ -754,7 +833,7 @@ tokenType  ITrarrowtail="A"                --  >-
 tokenType  ITLarrowtail="A"                --  -<<
 tokenType  ITRarrowtail="A"                --  >>-
 
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ <= 611
 tokenType  ITdotnet="SS"                   -- ??
 tokenType  (ITpragma _) = "SS"             -- ??
 #endif

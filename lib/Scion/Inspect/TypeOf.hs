@@ -30,9 +30,14 @@ typeOf (FoundId ident, path) =
       unwrap (WpTyApp t') t      = AppTy t t'
       unwrap (WpTyLam tv) t      = ForAllTy tv t
       -- do something else with coercion/dict vars?
+#if __GLASGOW_HASKELL__ < 700
       unwrap (WpApp v) t         = AppTy t (TyVarTy v)
       unwrap (WpLam v) t         = ForAllTy v t
-      unwrap (WpLet _bs) t       = t
+#else
+      -- unwrap (WpEvApp v) t       = AppTy t (TyVarTy v)
+      unwrap (WpEvLam v) t       = ForAllTy v t
+#endif
+      -- unwrap (WpLet _bs) t       = t
 #ifdef WPINLINE
       unwrap WpInline t          = t
 #endif
