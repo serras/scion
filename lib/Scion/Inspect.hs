@@ -44,7 +44,7 @@ import qualified Var( varName )
 import DataCon ( dataConUserType )
 import Type ( tidyType )
 import VarEnv ( emptyTidyEnv )
-import GHC.SYB.Utils()
+-- import GHC.SYB.Utils()
 import qualified Outputable as O ( (<>), empty, dot )
 
 import Data.Data
