@@ -22,7 +22,7 @@ renamedSourceGroup :: RenamedSource -> HsGroup Name
 isUserDefinedId :: Id -> Bool
 isRecStmt :: StmtLR idL idR -> Bool
 
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ < 611
 
 renamedSourceGroup (grp, _, _, _, _) = grp
 

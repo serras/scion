@@ -43,7 +43,12 @@ import TcRnMonad
 import OccName
 import IfaceSyn
 import RdrName
+
+#if __GLASGOW_HASKELL__ < 700
 import LazyUniqFM
+#else
+import UniqFM ( lookupUFM )
+#endif
 
 -- System imports
 import System.Directory

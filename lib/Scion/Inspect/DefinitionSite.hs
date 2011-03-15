@@ -26,7 +26,7 @@ import PprTyThing ( pprTyThingInContext )
 import TyCon ( isCoercionTyCon, isFamInstTyCon )
 import HscTypes ( isBootSummary )
 
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ < 611
 import Var ( globalIdVarDetails )
 import IdInfo ( GlobalIdDetails(..) )
 #else
@@ -87,7 +87,7 @@ mkSiteDB base_dir ty_things = foldl' go emptyDefSiteDB ty_things
                ty_thing db
 
     is_interesting_id ident =
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ < 611
       case globalIdVarDetails ident of
         VanillaGlobal -> True
         ClassOpId _ -> True
@@ -122,7 +122,7 @@ dumpDefSiteDB (DefSiteDB m) = unlines (map pp (M.assocs m))
         | (l, t) <- l_ty_things ]
 
     pp_ty_thing tt@(AnId ident) =
-#if GHC_VERSION < 611
+#if __GLASGOW_HASKELL__ < 611
         showSDoc (pprTyThingInContext False tt <+> ppr (globalIdVarDetails ident))
 #else
         showSDoc (pprTyThingInContext False tt <+> ppr (idDetails ident))
