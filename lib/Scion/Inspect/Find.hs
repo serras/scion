@@ -476,7 +476,7 @@ instance (Search id id) => Search id (DerivDecl id) where
 
 instance (Search id id) => Search id (Sig id) where
   search p s (TypeSig n t)   = search p s n `mappend` search p s t
-  -- search p s (IdSig i)    = search p s i
+  search _ _ (IdSig i)       = only (FoundId i)
   search p s (FixSig n)      = search p s n
   search p s (InlineSig n _) = search p s n
   search p s (SpecSig n t _) = search p s n `mappend` search p s t

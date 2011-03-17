@@ -333,11 +333,18 @@ ghcSpanToLocation baseDir sp
   | GHC.isGoodSrcSpan sp =
       mkLocation (mkLocFile baseDir (GHC.unpackFS (GHC.srcSpanFile sp)))
                  (GHC.srcSpanStartLine sp)
-                 (GHC.srcSpanStartCol sp)
+                 (ghcCol2ScionCol $ GHC.srcSpanStartCol sp)
                  (GHC.srcSpanEndLine sp)
-                 (GHC.srcSpanEndCol sp)
+                 (ghcCol2ScionCol $ GHC.srcSpanEndCol sp)
   | otherwise =
       mkNoLoc (GHC.showSDoc (GHC.ppr sp))
+
+ghcCol2ScionCol :: Int -> Int
+#if __GLASGOW_HASKELL__ < 700
+ghcCol2ScionCol c=c -- GHC 6.x starts at 0 for columns
+#else
+ghcCol2ScionCol c=c-1 -- GHC 7 starts at 1 for columns
+#endif
 
 -- | Construct a LocSource from a file name, converting the file name to an absolute path when necessary.
 mkLocFile :: FilePath -> String -> LocSource
