@@ -21,6 +21,7 @@ module Scion
 import Scion.Types
 import Scion.Session
 import Scion.Cabal
+import Scion.Types.Notes
 import Scion.Utils
 
 import GHC
@@ -49,7 +50,7 @@ runScion m = do
 runScion' :: [String] -> ScionM a -> IO a
 runScion' static_flags act = do
   let fname = fsLit "<api-client>"
-      lflags = [ L (mkSrcSpan (mkSrcLoc fname line 0) (mkSrcLoc fname line (length s))) s
+      lflags = [ L (mkSrcSpan (mkSrcLoc fname line (scionColToGhcCol 0)) (mkSrcLoc fname line (scionColToGhcCol $ length s))) s
                 | (s,line) <- zip static_flags [1..] ]
   (_leftovers, warnings) <- parseStaticFlags lflags
   forM_ warnings $ \(L region msg) ->

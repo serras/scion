@@ -562,7 +562,7 @@ cmdThingAtPoint =
       fileNameArg <&> lineColumnArgs <&> optArg' "qualify" False decodeBool <&> optArg' "typed" True decodeBool $ cmd
   where
     cmd fname line col qual typed= do
-      let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line col
+      let loc = srcLocSpan $ mkSrcLoc (fsLit fname) line (scionColToGhcCol col)
       tc_res <- getSessionSelector bgTcCache
       case tc_res of
         Just (Typechecked tcm) -> do
@@ -573,13 +573,14 @@ cmdThingAtPoint =
                -- else doThingAtPointTyped (renamedSource tcm) loc qual tcm
              return $ Just tap
         _ -> return Nothing
-    doThingAtPointTyped :: Search Id a => a ->  SrcSpan -> Bool -> TypecheckedModule -> ScionM String
+    doThingAtPointTyped :: TypecheckedSource ->  SrcSpan -> Bool -> TypecheckedModule -> ScionM String
     doThingAtPointTyped src loc qual tcm=do
             let in_range = overlaps loc
-            let r = findHsThing in_range src
+            let r = searchBindBag in_range noSrcSpan src
             unqual <- if qual
                 then return $ O.alwaysQualify
                 else unqualifiedForModule tcm
+            --liftIO $ putStrLn $ showData TypeChecker 2 src
             return $ case pathToDeepest r of
               Nothing -> "no info"
               Just (x,xs) ->
@@ -725,6 +726,8 @@ cmdNameDefinitions :: Cmd
 cmdNameDefinitions =
     Cmd "name-definitions" $ reqArg' "name" S.toString $ cmd
   where cmd nm = do
+--          mc<-getSessionSelector moduleCache
+--          liftIO $ putStrLn $ ("moduleCache values:" ++ (show $ moduleCacheSize mc))
           db <- getSessionSelector defSiteDB
           let nms=comps nm
           --liftIO $ putStrLn $ last nms
@@ -795,7 +798,7 @@ cmdCompletionVarIds = Cmd "completion-varIds" $ fileNameArg $ generateCompletion
 -- | Class type name completions: generate the list of class names currently visible within the
 -- current module. The IDE is repsonsible for prefix or name filering.
 
--- FIXME: Use focused_mod here, when available, mimicing bgTypeCheck.
+-- FIXME: Use focused_mod here, when available, mimicking bgTypeCheck.
 cmdCompletionClassTypeNames :: Cmd
 cmdCompletionClassTypeNames = Cmd "completion-classTypeNames" $ fileNameArg $ generateCompletions getClassTypeNameCompletions
 

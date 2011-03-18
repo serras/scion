@@ -272,13 +272,13 @@ hsConDeclsNames cons
   = snd (foldl do_one ([], []) cons)
   where
     do_one (flds_seen, acc) (L _ (ConDecl { con_name = lname, con_details = RecCon flds }))
-	= (map unLoc new_flds ++ flds_seen, lname : new_flds ++ acc)
-	where
-	  new_flds = filterOut (\f -> unLoc f `elem` flds_seen)
-			       (map cd_fld_name flds)
+        = (map unLoc new_flds ++ flds_seen, lname : new_flds ++ acc)
+        where
+            new_flds = filterOut (\f -> unLoc f `elem` flds_seen)
+                   (map cd_fld_name flds)
 
     do_one (flds_seen, acc) (L _ (ConDecl { con_name = lname }))
-	= (flds_seen, lname:acc)
+        = (flds_seen, lname:acc)
 #endif
 
 valBinds :: FilePath -> HsGroup Name -> [OutlineDef]
@@ -388,7 +388,7 @@ ghctokensArbitrary base_dir contents = do
         let dflags1 = List.foldl' dopt_set dflags0 lexerFlags
 #endif
         --let dflags1 = dflags0{flags=(Opt_TemplateHaskell:(flags dflags0))}
-        let prTS = lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 0) dflags1
+        let prTS = lexTokenStream sb (mkSrcLoc (mkFastString "<interactive>") 1 (scionColToGhcCol 0)) dflags1
         --setSessionDynFlags dflags0
         case prTS of
                 POk _ toks      -> return $ Right $ (filter ofInterest toks)
@@ -741,7 +741,7 @@ tokenType  ITscc_prag="P"
 tokenType  ITgenerated_prag="P"
 tokenType  ITcore_prag="P"                 -- hdaume: core annotations
 tokenType  ITunpack_prag="P"
-#if __GLASGOW_HASKELL__ >= 612 && __GLASGOW_HASKELL__ < 700 
+#if __GLASGOW_HASKELL__ >= 612
 tokenType  ITann_prag="P"
 #endif
 tokenType  ITclose_prag="P"

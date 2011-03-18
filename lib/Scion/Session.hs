@@ -141,11 +141,11 @@ setComponentTargets (Component c) = setTargets =<< componentTargets c
 --    contain the specified component.
 -- 
 loadComponent :: Component
-	            -> ScionM CompilationResult
+                -> ScionM CompilationResult
 loadComponent comp = loadComponent' comp defaultLoadOptions
 
 loadComponent' :: Component
-	             -> LoadOptions                 -- ^ Should we build on disk?, etc
+                 -> LoadOptions                 -- ^ Should we build on disk?, etc
                -> ScionM CompilationResult    -- ^ The compilation result.
 loadComponent' comp options = do
    -- TODO: group warnings by file

@@ -19,7 +19,7 @@ module Scion.Types.Notes
   , overlapLoc
   , AbsFilePath(toFilePath), mkAbsFilePath
   , Note(..), NoteKind(..), Notes
-  , ghcSpanToLocation, ghcErrMsgToNote, ghcWarnMsgToNote
+  , ghcSpanToLocation, ghcErrMsgToNote, ghcWarnMsgToNote, scionColToGhcCol
   , ghcMessagesToNotes, trimFile
   )
 where
@@ -333,17 +333,24 @@ ghcSpanToLocation baseDir sp
   | GHC.isGoodSrcSpan sp =
       mkLocation (mkLocFile baseDir (GHC.unpackFS (GHC.srcSpanFile sp)))
                  (GHC.srcSpanStartLine sp)
-                 (ghcCol2ScionCol $ GHC.srcSpanStartCol sp)
+                 (ghcColToScionCol $ GHC.srcSpanStartCol sp)
                  (GHC.srcSpanEndLine sp)
-                 (ghcCol2ScionCol $ GHC.srcSpanEndCol sp)
+                 (ghcColToScionCol $ GHC.srcSpanEndCol sp)
   | otherwise =
       mkNoLoc (GHC.showSDoc (GHC.ppr sp))
 
-ghcCol2ScionCol :: Int -> Int
+ghcColToScionCol :: Int -> Int
 #if __GLASGOW_HASKELL__ < 700
-ghcCol2ScionCol c=c -- GHC 6.x starts at 0 for columns
+ghcColToScionCol c=c -- GHC 6.x starts at 0 for columns
 #else
-ghcCol2ScionCol c=c-1 -- GHC 7 starts at 1 for columns
+ghcColToScionCol c=c-1 -- GHC 7 starts at 1 for columns
+#endif
+
+scionColToGhcCol :: Int -> Int
+#if __GLASGOW_HASKELL__ < 700
+scionColToGhcCol c=c -- GHC 6.x starts at 0 for columns
+#else
+scionColToGhcCol c=c+1 -- GHC 7 starts at 1 for columns
 #endif
 
 -- | Construct a LocSource from a file name, converting the file name to an absolute path when necessary.

@@ -39,8 +39,8 @@ data TokenDef = TokenDef {
 extractNames:: [OutlineDef] -> [SDoc]
 extractNames
   = foldl' (\l od -> case od_name od of
-	               Left n -> n:l
-	               Right _ -> l)
+                       Left n -> n:l
+                       Right _ -> l)
            []
 
 trimLocationFile:: [OutlineDef] -> [OutlineDef]

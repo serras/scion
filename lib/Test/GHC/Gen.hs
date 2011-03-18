@@ -17,8 +17,8 @@ instance Arbitrary SrcSpan where
       c_len <- choose (1, s+1)
       return $ 
         mkSrcSpan 
-          (mkSrcLoc file l_from c_from)
-          (mkSrcLoc file (l_from+l_len) (c_from+c_len))
+          (mkSrcLoc file l_from (scionColToGhcCol c_from))
+          (mkSrcLoc file (l_from+l_len) (scionColToGhcCol $ c_from+c_len))
           -- XXX: if l_len > 0 then c_len + c_from >= 0 is enough
 {-
 instance Show SrcSpan where

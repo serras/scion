@@ -14,7 +14,7 @@
 --
 module Scion.Inspect.Find 
   ( findHsThing, SearchResult(..), SearchResults, Search
-  , PosTree(..), PosForest, deepestLeaf, pathToDeepest
+  , PosTree(..), PosForest, deepestLeaf, pathToDeepest, searchBindBag
   , surrounds, overlaps
 #ifdef SCION_DEBUG
   , prop_invCmpOverlap
@@ -180,7 +180,7 @@ only r = S.singleton (Node r S.empty)
 above :: SearchResult id -> SearchResults id -> SearchResults id
 above r rest = S.singleton (Node r rest)
 
-instance Search Id Id where
+instance Search id Id where
   search _ _ i = only (FoundId i)
 
 instance Search Name Name where
@@ -195,6 +195,22 @@ instance Search id HsLit where
 instance Search id id => Search id (IPName id) where
   search p s (IPName i) = search p s i
 
+--instance Search id id => Search id (Located (HsBindLR id id)) where
+-- search p s (L _ a@AbsBinds{})= search p s a
+-- search p _ (L s a)
+--    | p s   = search p s a
+--    | otherwise = mempty
+
+-- at least in GHC7 if you have a AbsBind with a type signature the SrcSpan of the AbsBind covers only the type signature...
+searchBindBag :: Search id id => (SrcSpan -> Bool) -> SrcSpan -> Bag (Located (HsBindLR id id)) -> SearchResults id
+searchBindBag p s bs = mconcat $ fmap (searchBinds p s) (F.toList bs)
+    
+searchBinds :: Search id id => (SrcSpan -> Bool) -> SrcSpan -> (Located (HsBindLR id id)) -> SearchResults id
+searchBinds p s (L _ a@AbsBinds{})= search p s a -- ignore location of the absbinds
+searchBinds p _ (L s a)
+    | p s   = search p s a
+    | otherwise = mempty
+    
 instance Search id a => Search id (Located a) where
   search p _ (L s a)
     | p s   = search p s a
@@ -222,10 +238,11 @@ instance (Search id id) => Search id (HsBindLR id id) where
         case b of
           FunBind { fun_id = i, fun_matches = ms } -> 
               search p s i `mappend` search p s ms
-          AbsBinds { abs_binds = bs }  -> search p s bs
+          AbsBinds { abs_binds = bs }  -> searchBindBag p s bs
           PatBind { pat_lhs = lhs, pat_rhs = rhs } ->
               search p s lhs `mappend` search p s rhs
-          _ -> mempty
+          VarBind { var_rhs = rhs } -> search p s rhs    
+
 
 instance (Search id id) => Search id (MatchGroup id) where
   search p s (MatchGroup ms _) = search p s ms
@@ -346,7 +363,7 @@ instance (Search id id) => Search id (HsLocalBindsLR id id) where
 
 instance (Search id id) => Search id (HsValBindsLR id id) where
   search p s (ValBindsOut rec_binds _) =
-      mconcat $ fmap (search p s . snd) rec_binds
+      mconcat $ fmap (searchBindBag p s . snd) rec_binds
   search _ _ _ = mempty
 
 instance (Search id id) => Search id (HsCmdTop id) where
@@ -373,7 +390,7 @@ instance (Search id id) => Search id (StmtLR id id) where
           GroupStmt ss _ g gg -> search p s ss `mappend` search p s g
                                                `mappend` either (search p s) (const mempty) gg
 #endif
-          stm | isRecStmt stm -> search p s (recS_stmts stm)
+          RecStmt{recS_stmts=sts} -> search p s sts
 
 --
 -- Note [SearchRecStmt]
@@ -462,12 +479,12 @@ instance (Search id id) => Search id (TyClDecl id) where
                                                               `mappend` search p s v
                                                               `mappend` search p s fd
                                                               `mappend` search p s sg
-                                                              `mappend` search p s m
+                                                              `mappend` searchBindBag p s m
                                                               `mappend` search p s tt
                                                               `mappend` search p s dc
 
 instance (Search id id) => Search id (InstDecl id) where
-  search p s (InstDecl t b sg dc) = search p s t `mappend` search p s b
+  search p s (InstDecl t b sg dc) = search p s t `mappend` searchBindBag p s b
                                                  `mappend` search p s sg
                                                  `mappend` search p s dc
 
@@ -476,7 +493,7 @@ instance (Search id id) => Search id (DerivDecl id) where
 
 instance (Search id id) => Search id (Sig id) where
   search p s (TypeSig n t)   = search p s n `mappend` search p s t
-  search _ _ (IdSig i)       = only (FoundId i)
+  search p s (IdSig i)       = search p s i
   search p s (FixSig n)      = search p s n
   search p s (InlineSig n _) = search p s n
   search p s (SpecSig n t _) = search p s n `mappend` search p s t

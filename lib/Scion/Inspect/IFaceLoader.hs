@@ -154,7 +154,7 @@ updateModules (m:mods) mCache
     >>= updateModules mods
   | otherwise
   = case Map.lookup m mCache of
-      (Just mData) ->
+      (Just mData) ->do
         ifM (moduleChanged m (lastModTime mData))
           (modDebugMsg m "Updating "
             >> cacheIFaceModule m mCache
@@ -169,16 +169,15 @@ unknownPackageId = stringToPackageId "*unknown*"
   
 -- Predicate for detecting if the module's time/date stamp has changed
 moduleChanged :: Module         -- ^ The module to test
-              -> IO ClockTime   -- ^ Existing last-modified time of the module
+              -> ClockTime   -- ^ Existing last-modified time of the module
               -> ScionM Bool    -- ^ The result
 moduleChanged m modTime = getSession >>= compareMTimes
   where
     compareMTimes hsc = liftIO (findExactModule hsc m >>= checkMTimes)
     -- May return True or False
     checkMTimes (Found loc _) =
-      modTime
-      >>= (\mcMTime -> getModificationTime (ml_hi_file loc)
-                       >>= (\hiMTime -> return (diffClockTimes mcMTime hiMTime /= noTimeDiff)))
+        getModificationTime (ml_hi_file loc)
+                       >>= (\hiMTime -> return (diffClockTimes modTime hiMTime /= noTimeDiff))
     -- Ensure that we leave the interface file alone if it cannot be found.
     checkMTimes _ = return False
 
@@ -207,12 +206,13 @@ cacheIFaceModule m cache = getInterfaceFile m >>= readIFace
                             , hiddenMods =  Set.empty
                             , otherMods  =  Set.empty
                             }
-          updateModSyms mstate =
+          updateModSyms mstate = do
             let fixedMState = fixPrelude m mstate
                 updMSyms = modSyms fixedMState
-            in  debugModSymData (exportSyms fixedMState) updMSyms
+            mcd <- liftIO (mkModCacheData fpath updMSyms)    
+            debugModSymData (exportSyms fixedMState) updMSyms
                 >> reportProblems m fixedMState
-                >> (return $ Map.insert m (mkModCacheData fpath updMSyms) cache)
+                >> (return $ Map.insert m mcd cache)
       in  collectInterface initialMState iface
           >>= updateModSyms
     
@@ -252,7 +252,7 @@ cacheHomePackageModule m cache = withSession readHomePackageModule
   where
     readHomePackageModule hsc =
       case lookupUFM (hsc_HPT hsc) (moduleName m) of
-        (Just hmi) ->
+        (Just hmi) -> do
           let iface = hm_iface hmi
               eSet = exportSet iface
               initialMState = ModStateT {
@@ -264,12 +264,13 @@ cacheHomePackageModule m cache = withSession readHomePackageModule
                                 , hiddenMods =  Set.empty
                                 , otherMods  =  Set.empty
                                 }
-          in  collectInterface initialMState iface
-              >>= (\mstate ->
+          collectInterface initialMState iface
+              >>= (\mstate ->do
                     let updMSyms = modSyms mstate
-                    in  (debugModSymData (exportSyms mstate) updMSyms)
+                    mcd <- liftIO (mkModCacheData "" updMSyms)
+                    (debugModSymData (exportSyms mstate) updMSyms)
                         >> (reportProblems m mstate)
-                        >> (return $ Map.insert m (mkModCacheData "" updMSyms) cache))
+                        >> (return $ Map.insert m mcd cache))
         Nothing    -> return cache
 
 -- | Collect declarations from a Haskell interface's mi_usages module usage list. 
@@ -431,7 +432,7 @@ unknownModule :: ModuleName
 unknownModule = mkModule unknownPackageId
 
 -- | Update a module's type constructor cache. This function extracts the current typechecked module's
--- type constrctors and stashes the resulting completion tuples in the session's module cache. N.B.:
+-- type constructors and stashes the resulting completion tuples in the session's module cache. N.B.:
 -- we assume that the current typecheck completed successfully, although that particular case is
 -- handled by @extractHomeModuleTyCons@. 
 updateHomeModuleTyCons :: Maybe BgTcCache

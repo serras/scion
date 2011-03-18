@@ -462,7 +462,7 @@ type ModuleCache = Map.Map Module ModCacheData
 -- | Name to module symbol data associations
 data ModCacheData = 
   ModCacheData {
-    lastModTime :: IO ClockTime         -- ^ Last modified time for Haskell interface files 
+    lastModTime :: ClockTime         -- ^ Last modified time for Haskell interface files 
   , modSymData  :: ModSymData           -- ^ Module symbol data
   , importDecls :: [ImportDecl RdrName] -- ^ Import declarations for home modules
   , tyCons      :: CompletionTuples     -- ^ Last known good type constructor completion tuples
@@ -523,22 +523,27 @@ emptyModuleCache = Map.empty
 emptyModCacheData :: ModCacheData
 emptyModCacheData =
   ModCacheData {
-    lastModTime = return (TOD 0 0)
+    lastModTime = TOD 0 0
   , modSymData  = Map.empty
   , importDecls = []
   , tyCons      = []
   }
 
 -- | Make a new module cache record
-mkModCacheData :: FilePath -> ModSymData -> ModCacheData
-mkModCacheData fpath msymData =
-  ModCacheData {
-    lastModTime = getModificationTime fpath
-  , modSymData  = msymData
-  , importDecls = []
-  , tyCons      = []
-  }
+mkModCacheData :: FilePath -> ModSymData -> IO ModCacheData
+mkModCacheData fpath msymData =do
+        mt<-getModificationTime fpath
+        return $
+          ModCacheData {
+            lastModTime = mt
+          , modSymData  = msymData
+          , importDecls = []
+          , tyCons      = []
+          }
 
+moduleCacheSize :: ModuleCache -> Int
+moduleCacheSize mc=foldr (\(ModCacheData _ msd ids tc) cnt->cnt+(sz msd)+(length ids)+(length tc)) 0 (Map.elems mc)
+        where sz msd=foldr (\s cnt2->cnt2+(Set.size s)) 0 (Map.elems msd)
 -- Various predicates for 'ModDeclSymbols'
 
 -- | Does the mod declaration set have a 'MTypeDecl'?

@@ -333,7 +333,7 @@ dependencies cabal_file pd pkgs=let
         in DM.assocs $ DM.fromListWith (++) $ ((map (\(a,b)->(a,[b])) cpkgs) ++ (map (\(a,_)->(a,[])) pkgs))
         where 
 #if CABAL_VERSION == 106
-		sourcePackageId = package
+                sourcePackageId = package
 #endif
                 buildPkgMap :: (FilePath,[InstalledPackageInfo]) -> DM.Map String [(FilePath,InstalledPackageInfo)] -> DM.Map String  [(FilePath,InstalledPackageInfo)]
                 buildPkgMap (fp,ipis) m=foldr (\i dm->let
@@ -509,8 +509,8 @@ instance JSON CabalPackage where
         fromJSON _ = fail "CabalPackage"
         toJSON (CabalPackage n v e ds mns)=Dic.makeObject [(Dic.name,JSString (S.pack n)),(Dic.version,JSString (S.pack v)),(Dic.exposed,JSBool e),(Dic.dependent,toJSON ds),(Dic.modules,toJSON mns)]
 
-instance (Data a) => JSON (PD.ParseResult a) where
-        fromJSON _= undefined
-        toJSON (PD.ParseFailed pf)=Dic.makeObject [(Dic.error,JSString (S.pack $ show pf))]
-        toJSON (PD.ParseOk wrns _)=Dic.makeObject [(Dic.warnings,JSArray (map (JSString . S.pack . show) wrns)),
-                (Dic.result,JSObject DM.empty)] --toJSON a
+--instance (Data a) => JSON (PD.ParseResult a) where
+--        fromJSON _= undefined
+--        toJSON (PD.ParseFailed pf)=Dic.makeObject [(Dic.error,JSString (S.pack $ show pf))]
+--        toJSON (PD.ParseOk wrns _)=Dic.makeObject [(Dic.warnings,JSArray (map (JSString . S.pack . show) wrns)),
+--                (Dic.result,JSObject DM.empty)] --toJSON a

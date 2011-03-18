@@ -36,6 +36,8 @@ typeOf (FoundId ident, path) =
 #else
       -- unwrap (WpEvApp v) t       = AppTy t (TyVarTy v)
       unwrap (WpEvLam v) t       = ForAllTy v t
+      unwrap (WpEvApp _) t       = t
+      unwrap (WpLet _) t         = t
 #endif
       -- unwrap (WpLet _bs) t       = t
 #ifdef WPINLINE
