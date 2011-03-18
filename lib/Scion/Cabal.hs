@@ -89,6 +89,9 @@ data CabalComponent
   | Executable {cabalFile :: FilePath
         , exe_name :: String
         , buildable :: Bool}
+  | TestSuite {cabalFile :: FilePath
+        , test_name :: String
+        , buildable :: Bool}      
   deriving (Eq, Show)
 
 data CabalPackage=CabalPackage {
@@ -192,7 +195,7 @@ cabalTargets Executable{exe_name=name,cabalFile=f} = do
   pd <- cabal_package f
   let ex0 = filter ((name==) . PD.exeName) (PD.executables pd)
   case ex0 of
-    [] -> error "cabalTargets no exe" --noExeError n
+    [] -> error $ "cabalTargets no executable with name: " ++ name --noExeError n
     (_:_:_) -> error $ "Multiple executables with name: " ++ name
     [exe] -> do
       let proj_root = dropFileName f
@@ -205,6 +208,31 @@ cabalTargets Executable{exe_name=name,cabalFile=f} = do
              ++
               map cabalModuleNameToTarget others
       return targets
+#if CABAL_VERSION > 108
+cabalTargets TestSuite{test_name=name,cabalFile=f} = do
+  pd <- cabal_package f
+  let ex0 = filter ((name==) . PD.testName) (PD.testSuites pd)
+  case ex0 of
+    [] -> error $ "cabalTargets no test-suite with name: " ++ name --noExeError n
+    (_:_:_) -> error $ "Multiple test-suites with name: " ++ name
+    [ts] -> do
+      let proj_root = dropFileName f
+      let others = PD.otherModules (PD.testBuildInfo ts)
+      mainTgts<-case PD.testInterface ts of
+          PD.TestSuiteExeV10 _ fp-> do
+                let main_mods =
+                        [ (if (search_path /= ".") then proj_root </> search_path else proj_root) </> fp
+                           | search_path <- PD.hsSourceDirs (PD.testBuildInfo ts)]
+                existing_main_mods <- filterM (liftIO . doesFileExist) main_mods
+                return $ map (\main_mod -> Target (TargetFile main_mod Nothing) True Nothing) (take 1 existing_main_mods)
+          PD.TestSuiteLibV09 _ mn->return [cabalModuleNameToTarget mn]
+          PD.TestSuiteUnsupported _->return [] 
+          
+      return $ mainTgts ++ (map cabalModuleNameToTarget others)
+#endif
+
+
+
 
 cabal_package :: FilePath -> ScionM PD.PackageDescription   
 cabal_package f = do
@@ -233,9 +261,15 @@ cabalDynFlags component = do
 #else
        clbi
          | Executable {exe_name=exeName'} <- component
-           = fromJust $ lookup exeName' (executableConfigs lbi)
+           = fromJustD "executable" $ lookup exeName' (executableConfigs lbi)
+#endif
+#if CABAL_VERSION > 108
+         | TestSuite {test_name=testName'} <- component
+           = fromJustD ("testsuite:"++testName'++":"++(show $ map fst $ testSuiteConfigs lbi)) $ lookup testName' (testSuiteConfigs lbi)
+#endif     
+#if CABAL_VERSION >= 107      
          | otherwise
-           = fromJust $ libraryConfig lbi
+           = fromJustD "library" $ libraryConfig lbi
    let opts = ghcOptions lbi bi clbi odir
 #endif
    return $ opts ++ output_file_opts odir
@@ -249,7 +283,14 @@ cabalDynFlags component = do
        [] -> error "cabalDynFlags no exe" --noExeError n
        _ -> error $ "Multiple executables, named \"" ++ n ++ 
                     "\" found.  This is weird..."
-
+#if CABAL_VERSION > 108
+   component_build_info TestSuite{test_name=n} pd =
+     case [ exe | exe <- PD.testSuites pd, PD.testName exe == n ] of
+       [ exe ] -> return (PD.testBuildInfo exe)
+       [] -> error "cabalDynFlags no testsuite" --noExeError n
+       _ -> error $ "Multiple testsuites, named \"" ++ n ++ 
+                    "\" found.  This is weird..."
+#endif
    output_file_opts odir =
      case component of
        Executable{exe_name=exeName'} -> 
@@ -258,6 +299,9 @@ cabalDynFlags component = do
                    then exeExtension
                    else "")]
        _ -> []
+
+fromJustD msg Nothing=error msg
+fromJustD _ (Just a)=a
 
 -- | Return all components of the specified Cabal file.
 -- 
@@ -277,7 +321,9 @@ cabalComponentsFromDescription :: FilePath -> PD.PackageDescription -> [CabalCom
 cabalComponentsFromDescription cabal_file pd= 
       (if isJust (PD.library pd) then [Library cabal_file (PD.buildable $ PD.libBuildInfo $ fromJust (PD.library pd))] else []) ++
       [ Executable cabal_file (PD.exeName e) (PD.buildable $ PD.buildInfo e)
-      | e <- PD.executables pd ]
+      | e <- PD.executables pd ] ++
+      [ TestSuite cabal_file (PD.testName e) (PD.buildable $ PD.testBuildInfo e)
+      | e <- PD.testSuites pd ]
 
 cabalParse :: FilePath -> ScionM PD.GenericPackageDescription
 cabalParse cabal_file = do  
@@ -450,6 +496,9 @@ configureCabalProject root_dir dist_dir = do
            { configDistPref = Flag dist_dir
            , configVerbosity = Flag V.deafening
            , configUserInstall = Flag True
+#if CABAL_VERSION > 108           
+           , configTests = Flag True
+#endif
            , configConfigurationsFlags = map (\(n,v)->(PD.FlagName n,v)) user_flags
            }
                    
@@ -487,6 +536,10 @@ instance JSON CabalComponent where
       Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile,
       Just (JSBool b) <- Dic.lookupKey obj Dic.buildable =
         return $ Executable (S.unpack f) (S.unpack s) b
+    | Just (JSString s) <- Dic.lookupKey obj (Dic.testsuite),
+      Just (JSString f) <- Dic.lookupKey obj Dic.cabalfile,
+      Just (JSBool b) <- Dic.lookupKey obj Dic.buildable =
+        return $ TestSuite (S.unpack f) (S.unpack s) b        
   fromJSON _ = fail "component"
 
   toJSON (Library f b) =
@@ -497,7 +550,11 @@ instance JSON CabalComponent where
       Dic.makeObject [(Dic.executable, JSString (S.pack n)),
                   (Dic.cabalfile, JSString (S.pack f)),
                 (Dic.buildable, JSBool b)]
-
+  toJSON (TestSuite f n b) =
+      Dic.makeObject [(Dic.testsuite, JSString (S.pack n)),
+                  (Dic.cabalfile, JSString (S.pack f)),
+                (Dic.buildable, JSBool b)]
+                
 instance JSON CabalPackage where
         fromJSON obj@(JSObject _) | 
                 Just (JSString n) <- Dic.lookupKey obj Dic.name,
