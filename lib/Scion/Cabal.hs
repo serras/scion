@@ -300,6 +300,7 @@ cabalDynFlags component = do
                    else "")]
        _ -> []
 
+fromJustD :: [Char] -> Maybe a -> a
 fromJustD msg Nothing=error msg
 fromJustD _ (Just a)=a
 
