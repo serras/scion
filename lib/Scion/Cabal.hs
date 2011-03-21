@@ -322,9 +322,11 @@ cabalComponentsFromDescription :: FilePath -> PD.PackageDescription -> [CabalCom
 cabalComponentsFromDescription cabal_file pd= 
       (if isJust (PD.library pd) then [Library cabal_file (PD.buildable $ PD.libBuildInfo $ fromJust (PD.library pd))] else []) ++
       [ Executable cabal_file (PD.exeName e) (PD.buildable $ PD.buildInfo e)
-      | e <- PD.executables pd ] ++
-      [ TestSuite cabal_file (PD.testName e) (PD.buildable $ PD.testBuildInfo e)
-      | e <- PD.testSuites pd ]
+      | e <- PD.executables pd ]
+#if CABAL_VERSION > 108
+       ++ [ TestSuite cabal_file (PD.testName e) (PD.buildable $ PD.testBuildInfo e)
+        | e <- PD.testSuites pd ]
+#endif
 
 cabalParse :: FilePath -> ScionM PD.GenericPackageDescription
 cabalParse cabal_file = do  
