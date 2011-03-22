@@ -1,7 +1,7 @@
 -- | Test harness for Scion.Types.Notes
 module Main where
 
-import IO
+import System.IO
 import Scion.Types.Notes
 import Test.HUnit
 

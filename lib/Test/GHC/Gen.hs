@@ -3,6 +3,7 @@
 module Test.GHC.Gen where
 
 #ifdef SCION_DEBUG
+import Scion.Types.Notes
 import Test.QuickCheck
 
 import SrcLoc
