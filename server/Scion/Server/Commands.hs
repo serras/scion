@@ -47,7 +47,7 @@ import qualified Outputable as O ( (<+>),alwaysQualify,neverQualify,text )
 
 import Control.Applicative
 import Control.Monad
-import Data.List ( nub )
+import Data.List ( nub, isInfixOf )
 import Data.Time.Clock  ( NominalDiffTime )
 import System.Exit ( ExitCode(..) )
 import Text.JSON.AttoJSON (JSON,JSValue(..),fromJSON,toJSON)
@@ -212,7 +212,7 @@ handleScionException :: ScionM a -> ScionM (OkErr a)
 handleScionException m = ((((do
    r <- m
    return (Ok r)
-  `gcatch` \(e :: SomeScionException) -> return (Error (show e)))
+  `gcatch` \(e :: SomeScionException) -> return (Error ("Scion:" ++ (show e))))
   `gcatch` \(e' :: GhcException) ->
                case e' of
                 Panic _ -> throw e'
@@ -220,12 +220,12 @@ handleScionException m = ((((do
 #if __GLASGOW_HASKELL__ < 700
                 Interrupted -> throw e'
 #endif
-                _ -> return (Error (show e')))
+                _ -> return (Error ("GHC:" ++ (show e'))))
   `gcatch` \(e :: ExitCode) ->
                 -- client code may not exit the server!
                 return (Error (show e)))
   `gcatch` \(e :: IOError) ->
-                return (Error (show e)))
+                return (Error ("IO:" ++ (show e))))
 --   `gcatch` \(e :: SomeException) ->
 --                 liftIO (print e) >> liftIO (throwIO e)
 
@@ -699,7 +699,15 @@ cmdDumpSources = Cmd "dump-sources" $ noArgs $ cmd
 cmdLoad :: Cmd
 cmdLoad = Cmd "load" $ reqArg "component" <&> optArg "options" defaultLoadOptions $ cmd
   where
-    cmd comp options = loadComponent' comp options
+    cmd comp options = do
+        loadComponent' comp options
+            `gcatch` \(e' :: GhcException) ->
+                       case e' of
+                         CmdLineError s | isInfixOf  "cannot satisfy -package-id" s,
+                                Component c <- comp -> do
+                                componentClean c
+                                loadComponent' comp options
+                         _ -> throw e'
 
 cmdSetVerbosity :: Cmd
 cmdSetVerbosity =

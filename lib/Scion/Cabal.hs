@@ -108,6 +108,7 @@ instance IsComponent CabalComponent where
   componentInit = cabalComponentInit
   componentTargets = cabalTargets
   componentOptions = cabalDynFlags
+  componentClean = cabalClean . cabalFile    
 
 scionDistDir :: FilePath
 scionDistDir = ".dist-scion"

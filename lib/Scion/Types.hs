@@ -384,8 +384,10 @@ class (Show c, Eq c, JSON c) => IsComponent c where
   componentInit    :: c -> ScionM (Maybe String) --error msg
   componentTargets :: c -> ScionM [Target]
   componentOptions :: c -> ScionM [String]
-
+  componentClean :: c -> ScionM ()
+ 
   componentInit _ = return Nothing
+  componentClean _ = return ()
 
 data Component = forall c. IsComponent c => Component c
 
