@@ -340,6 +340,7 @@ executable scion-test
 
   ghc-options:  -Wall -fno-warn-unused-do-bind
 
+  other-modules: Test.InspectTest
 -- Unit testing for Scion.Types.Notes
 executable STypeNotes-test
   if !flag(testing)

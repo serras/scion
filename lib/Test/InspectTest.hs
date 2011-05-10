@@ -20,7 +20,9 @@ import qualified Outputable as O ( (<+>),neverQualify,text )
 
 inspectTests :: Test
 inspectTests=TestList [testTokenTypesSimple,testTokenTypesPreproc,testTokenTypesPreproc2Lines,testTokenTypesLiteral,
-        testNoPreproc,testPreproc,testPreproc2Lines,testLiterate,testResolveFunctionWithTypeClass,testResolveFunctionWithoutTypeClass]
+        testNoPreproc,testPreproc,testPreproc2Lines,testLiterate,testLiterateLatex
+        --,testResolveFunctionWithTypeClass,testResolveFunctionWithoutTypeClass]
+        ]
 
 
 testTokenTypesSimple :: Test
@@ -100,7 +102,7 @@ testPreproc2Lines=TestLabel "testPreproc2Lines" (TestCase (
         let (tt,s2)=preprocessSource s False
         assertEqual "tt is not 3" 3 (length tt)
         let (t1:t2:t3:[])=tt
-        putStrLn $ show tt
+        --putStrLn $ show tt
         assertEqual "first tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 4 0 4 16)) (t1)
         assertEqual "second tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 5 0 5 4)) (t2)
         assertEqual "third tt is not correct" (TokenDef "PP" (mkLocation (OtherSrc "<interactive>") 7 0 7 6)) (t3)
@@ -117,6 +119,19 @@ testLiterate= TestLabel "testLiterate" (TestCase (
         assertEqual "first tt is not correct" (TokenDef "DL" (mkLocation (OtherSrc "<interactive>") 1 0 1 27)) (t1)
         assertEqual "second tt is not correct" (TokenDef "DL" (mkLocation (OtherSrc "<interactive>") 3 0 3 11)) (t2)
         assertEqual ("content is not what expected: "++ s2) "\n  module Main\n\n  where\n  import Data.Map\n" s2
+        ))
+
+testLiterateLatex:: Test
+testLiterateLatex= TestLabel "testLiterateLatex" (TestCase (
+        do
+        assertEqual "lines does not give 2" 2 (length $ lines "line1\r\nline2")
+        let s="\\begin{code}\r\n module Main\n where\n import Data.Map\n\\end{code}\n"
+        let (tt,s2)=preprocessSource s True
+        assertEqual "tt is not 2" 2 (length tt)
+        let (t1:t2:[])=tt
+        assertEqual "first tt is not correct" (TokenDef "DL" (mkLocation (OtherSrc "<interactive>") 1 0 1 12)) (t1)
+        assertEqual "second tt is not correct" (TokenDef "DL" (mkLocation (OtherSrc "<interactive>") 5 0 5 10)) (t2)
+        assertEqual ("content is not what expected: "++ s2) "\n module Main\n where\n import Data.Map\n\n" s2
         ))
 
 perf:: IO()
@@ -163,7 +178,7 @@ functionAtLine line=do
                             return $ case pathToDeepest r of
                               Nothing -> ""
                               Just (x,_) -> (s  $ ((qualifiedResult x)O.<+> (O.text $ haddockType x)))   -- ++"->"++ (concat $ map (("\n\t" ++) . s . ppr) l1)
-                        Nothing -> return ""
+                        _ -> return ""
                 return l
         setCurrentDirectory base_dir
         return r
