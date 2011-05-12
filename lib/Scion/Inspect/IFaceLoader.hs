@@ -267,7 +267,7 @@ cacheHomePackageModule m cache = withSession readHomePackageModule
           collectInterface initialMState iface
               >>= (\mstate ->do
                     let updMSyms = modSyms mstate
-                    mcd <- liftIO (mkModCacheData "" updMSyms)
+                    mcd <- liftIO (mkModCacheData "." updMSyms) -- getModificationTime "" throws an error on unixes
                     (debugModSymData (exportSyms mstate) updMSyms)
                         >> (reportProblems m mstate)
                         >> (return $ Map.insert m mcd cache))
