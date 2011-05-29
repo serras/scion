@@ -46,16 +46,29 @@ flag cabal_1_10
 
 library
   build-depends:
-    base         == 4.*,
-    hslogger     >= 1.0,
-    ghc-paths    == 0.1.*,
-    AttoJson     >= 0.5.8,
-    multiset     >= 0.1 && < 0.3,
+    base             == 4.*,
+    hslogger         >= 1.0,
+    ghc-paths        == 0.1.*,
+    AttoJson         >= 0.5.8,
+    multiset         >= 0.1 && < 0.3,
     uniplate,
     list-tries,
-    binary       == 0.5.*,
-    array        >= 0.2 && < 0.4,
-    old-time     == 1.0.*
+    binary           == 0.5.*,
+    array            >= 0.2 && < 0.4,
+    old-time         == 1.0.*,
+    
+    text             == 0.11.*,
+    parsec           >= 3 && < 4,
+    cereal           == 0.3.*, 
+    derive           >= 2.5 && < 3,
+    haskell-src-exts >= 1.10 && < 2,
+    process          >= 1 && < 2,
+    unix             >= 2 && < 3,
+    tar              == 0.3.*,
+    zlib             == 0.5.*,
+    HTTP             >= 4000 && < 5000,
+    deepseq          >= 1.1 && < 2,
+    MissingH         == 1.*
   
   if impl(ghc >= 7.0)
     build-depends:
@@ -110,10 +123,13 @@ library
     Scion.Session,
     Scion.Cabal,
     Scion.Ghc,
-    Scion, Scion.Packages
+    Scion, Scion.Packages,
+    Scion.Browser,
+    Scion.Browser.Build,
+    Scion.Browser.Query
 
   -- ghc options are additive...
-  ghc-options:  -Wall
+  ghc-options:  -Wall -fno-warn-unused-do-bind -fno-warn-orphans
 
   if flag(testing)
     build-depends: QuickCheck >= 2
