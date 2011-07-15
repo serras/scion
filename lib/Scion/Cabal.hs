@@ -255,6 +255,10 @@ cabalDynFlags component = do
    let odir 
          | Executable {exe_name=exeName'} <- component
            = odir0 </> dropExtension exeName'
+#if CABAL_VERSION > 108
+         | TestSuite {test_name=testName'} <- component
+           = odir0 </> dropExtension testName'
+#endif
          | otherwise
            = odir0
 #if CABAL_VERSION < 107
@@ -299,6 +303,13 @@ cabalDynFlags component = do
                   (if null $ takeExtension exeName'
                    then exeExtension
                    else "")]
+#if CABAL_VERSION > 108
+       TestSuite{test_name=test_name'} ->
+         ["-o", odir </> test_name' <.>
+                  (if null $ takeExtension test_name'
+                   then exeExtension
+                   else "")]
+#endif
        _ -> []
 
 fromJustD :: [Char] -> Maybe a -> a
