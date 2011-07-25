@@ -37,7 +37,12 @@ import qualified Data.MultiSet as MS
 import qualified Data.Set as Set
 import qualified Data.Foldable as Fold
 
+#if CABAL_VERSION > 110
+import Distribution.Simple.LocalBuildInfo hiding ( Component(..) )
+#else
 import Distribution.Simple.LocalBuildInfo
+#endif
+
 import System.Directory
   ( setCurrentDirectory
   , getCurrentDirectory

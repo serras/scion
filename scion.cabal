@@ -44,6 +44,10 @@ flag cabal_1_10
   description: Enable the Cabal library 1.10 features
   default: False
 
+flag cabal_1_12
+  description: Enable the Cabal library 1.12 features
+  default: False
+
 library
   build-depends:
     base         == 4.*,
@@ -76,22 +80,28 @@ library
       ghc-syb,
       ghc-syb-utils,
       time         == 1.1.*
-
-  if flag(cabal_1_10)
+  
+  if flag(cabal_1_12)
     build-depends:
-      Cabal        >= 1.10,
-      hslogger     >= 1.1
-    cpp-options:    -DCABAL_VERSION=110
+      Cabal          >= 1.11,
+      hslogger       >= 1.1
+    cpp-options:     -DCABAL_VERSION=112
   else
-    if flag(cabal_1_8)
+    if flag(cabal_1_10)
       build-depends:
-        Cabal        >= 1.8,
+        Cabal        >= 1.10,
         hslogger     >= 1.1
-      cpp-options:    -DCABAL_VERSION=108
+      cpp-options:   -DCABAL_VERSION=110
     else
-      build-depends:
-        Cabal        == 1.6.*
-      cpp-options:    -DCABAL_VERSION=106
+      if flag(cabal_1_8)
+        build-depends:
+          Cabal      >= 1.8,
+          hslogger   >= 1.1
+        cpp-options: -DCABAL_VERSION=108
+      else
+        build-depends:
+          Cabal      == 1.6.*
+        cpp-options: -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
   extensions:      CPP, PatternGuards, DeriveDataTypeable
@@ -174,21 +184,27 @@ executable scion-server
       ghc-syb-utils,
       time         == 1.1.*
 
-  if flag(cabal_1_10)
+  if flag(cabal_1_12)
     build-depends:
-      Cabal      >= 1.10,
-      hslogger   >= 1.1
-    cpp-options:    -DCABAL_VERSION=110
+      Cabal          >= 1.11,
+      hslogger       >= 1.1
+    cpp-options:     -DCABAL_VERSION=112
   else
-    if flag(cabal_1_8)
+    if flag(cabal_1_10)
       build-depends:
-        Cabal      >= 1.8,
-        hslogger   >= 1.1
-      cpp-options:    -DCABAL_VERSION=108
+        Cabal        >= 1.10,
+        hslogger     >= 1.1
+      cpp-options:   -DCABAL_VERSION=110
     else
-      build-depends:
-        Cabal == 1.6.*
-      cpp-options:    -DCABAL_VERSION=106
+      if flag(cabal_1_8)
+        build-depends:
+          Cabal      >= 1.8,
+          hslogger   >= 1.1
+        cpp-options: -DCABAL_VERSION=108
+      else
+        build-depends:
+          Cabal      == 1.6.*
+        cpp-options: -DCABAL_VERSION=106
   
   if flag(server)
     
@@ -283,21 +299,27 @@ executable scion-test
       ghc-syb-utils,
       time         == 1.1.*
       
-  if flag(cabal_1_10)
+  if flag(cabal_1_12)
     build-depends:
-      Cabal        >= 1.10,
-      hslogger     >= 1.1
-    cpp-options:    -DCABAL_VERSION=110
+      Cabal          >= 1.11,
+      hslogger       >= 1.1
+    cpp-options:     -DCABAL_VERSION=112
   else
-    if flag(cabal_1_8)
+    if flag(cabal_1_10)
       build-depends:
-        Cabal        >= 1.8,
+        Cabal        >= 1.10,
         hslogger     >= 1.1
-      cpp-options:    -DCABAL_VERSION=108
+      cpp-options:   -DCABAL_VERSION=110
     else
-      build-depends:
-        Cabal == 1.6.*
-      cpp-options:    -DCABAL_VERSION=106
+      if flag(cabal_1_8)
+        build-depends:
+          Cabal      >= 1.8,
+          hslogger   >= 1.1
+        cpp-options: -DCABAL_VERSION=108
+      else
+        build-depends:
+          Cabal      == 1.6.*
+        cpp-options: -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
   extensions:      CPP, PatternGuards, DeriveDataTypeable
@@ -361,21 +383,27 @@ executable STypeNotes-test
       filepath     == 1.1.*,
       ghc          >= 6.10 && < 6.13
     
-  if flag(cabal_1_10)
+  if flag(cabal_1_12)
     build-depends:
-      Cabal        >= 1.10,
-      hslogger     >= 1.1
-    cpp-options:    -DCABAL_VERSION=110
+      Cabal          >= 1.11,
+      hslogger       >= 1.1
+    cpp-options:     -DCABAL_VERSION=112
   else
-    if flag(cabal_1_8)
+    if flag(cabal_1_10)
       build-depends:
-        Cabal        >= 1.8,
+        Cabal        >= 1.10,
         hslogger     >= 1.1
-      cpp-options:    -DCABAL_VERSION=108
+      cpp-options:   -DCABAL_VERSION=110
     else
-      build-depends:
-        Cabal == 1.6.*
-      cpp-options:    -DCABAL_VERSION=106
+      if flag(cabal_1_8)
+        build-depends:
+          Cabal      >= 1.8,
+          hslogger   >= 1.1
+        cpp-options: -DCABAL_VERSION=108
+      else
+        build-depends:
+          Cabal      == 1.6.*
+        cpp-options: -DCABAL_VERSION=106
 
   hs-source-dirs:  lib
   extensions:      CPP, PatternGuards

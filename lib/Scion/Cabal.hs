@@ -37,17 +37,23 @@ import Data.Maybe
 import qualified Data.Map as DM
 import System.Directory ( doesFileExist, getDirectoryContents,
                           getModificationTime, removeFile )
-import System.FilePath ( (</>), dropFileName, takeExtension,dropExtension,(<.>) )
+import System.FilePath ( (</>), dropFileName, takeExtension, dropExtension, (<.>) )
 import System.Exit ( ExitCode(..) )
 
 import qualified Distribution.ModuleName as PD
                        ( ModuleName, components )
 -- FIXME: unused import Distribution.Simple.Configure
 import Distribution.Simple.GHC ( ghcOptions )
+#if CABAL_VERSION > 110
+import Distribution.Simple.LocalBuildInfo hiding ( libdir, Component(..) )
+#else
 import Distribution.Simple.LocalBuildInfo hiding ( libdir )
+#endif
 import Distribution.Simple.Build ( initialBuildSteps )
 import Distribution.Simple.BuildPaths ( exeExtension )
+#if CABAL_VERSION < 112
 import Distribution.Simple.PreProcess ( knownSuffixHandlers )
+#endif
 import qualified Distribution.PackageDescription as PD
 import Distribution.Package
 import Distribution.InstalledPackageInfo
@@ -466,7 +472,11 @@ preprocessPackage :: FilePath
 preprocessPackage dist_dir = do
   lbi <- liftIO $ getPersistBuildConfig (localBuildInfoFile dist_dir)
   let pd = localPkgDescr lbi
+#if CABAL_VERSION > 110
+  liftIO $ initialBuildSteps dist_dir pd lbi V.normal
+#else
   liftIO $ initialBuildSteps dist_dir pd lbi V.normal knownSuffixHandlers
+#endif
   return ()
 
 cabalModuleNameToTarget :: PD.ModuleName -> Target
@@ -514,6 +524,9 @@ configureCabalProject root_dir dist_dir = do
 #if CABAL_VERSION > 108           
            , configTests = Flag True
 #endif
+#if CABAL_VERSION > 110
+           , configLibCoverage = Flag True
+#endif
            , configConfigurationsFlags = map (\(n,v)->(PD.FlagName n,v)) user_flags
            }
                    
@@ -529,8 +542,11 @@ configureCabalProject root_dir dist_dir = do
                            config_flags
 #endif
      liftIO $ writePersistBuildConfig dist_dir lbi
+#if CABAL_VERSION > 110
      liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal
-                            knownSuffixHandlers
+#else
+     liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal knownSuffixHandlers
+#endif
      return lbi
  where
    find_cabal_file = do
