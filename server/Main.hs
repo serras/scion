@@ -27,7 +27,7 @@ import MonadUtils ( liftIO )
 import Scion.Server.Generic as Gen
 --import qualified Scion.Server.ProtocolEmacs as Emacs
 import qualified Scion.Server.ConnectionIO as CIO
-import Scion (runScion)
+import Scion (runScion')
 import qualified Scion.Types  as ST
 
 
@@ -245,7 +245,7 @@ serve (Socketfile file) = do
 -- does the handshaking and then runs the protocol implementation 
 handleClient :: (CIO.ConnectionIO con) => con -> IO Bool
 handleClient con = do
-  runScion $ Gen.handle con 0
+  runScion' ["-fhpc"] $ Gen.handle con 0
 
 fixConfig :: StartupConfig -> StartupConfig
 fixConfig conf = case connectionMode conf of

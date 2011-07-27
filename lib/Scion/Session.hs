@@ -280,9 +280,16 @@ unload =
 -- no way to find out if there was an error from inside the program.
 addCmdLineFlags :: [String] -> ScionM [PackageId]
 addCmdLineFlags cmdFlags = do
-  message deafening $ "Setting Flags: " ++ show cmdFlags
+#if CABAL_VERSION > 110
+  -- The -fhpc flag is not a dynamic flag, so it's not recognized by the parser
+  -- We don't need it, it is already set as a static flag at init time
+  let cmdFlags' = filter ((/=) "-fhpc") cmdFlags
+#else
+  let cmdFlags' = cmdFlags
+#endif
+  message deafening $ "Setting Flags: " ++ show cmdFlags'
   dflags <- getSessionDynFlags
-  res <- gtry $ parseDynamicFlags dflags (map noLoc cmdFlags)
+  res <- gtry $ parseDynamicFlags dflags (map noLoc cmdFlags')
   case res of
     Left (UsageError msg) -> do
       liftIO $ putStrLn $ "Dynflags parse error: " ++ msg
