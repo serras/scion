@@ -283,7 +283,8 @@ cabalDynFlags component = do
            = fromJustD "library" $ libraryConfig lbi
    let opts = ghcOptions lbi bi clbi odir
 #endif
-   return $ opts ++ output_file_opts odir
+   o_file_opts <- output_file_opts odir
+   return $ opts ++ o_file_opts
  where
    component_build_info Library{} pd
      | Just lib <- PD.library pd = return (PD.libBuildInfo lib)
@@ -305,18 +306,23 @@ cabalDynFlags component = do
    output_file_opts odir =
      case component of
        Executable{exe_name=exeName'} -> 
-         ["-o", odir </> exeName' <.>
-                  (if null $ takeExtension exeName'
-                   then exeExtension
-                   else "")]
+         return ["-o", odir </> exeName' <.> (if null $ takeExtension exeName'
+                                                 then exeExtension
+                                                 else "")]
 #if CABAL_VERSION > 108
-       TestSuite{test_name=test_name',testInterface=TestSuiteExeV10} ->
-         ["-o", odir </> test_name' <.>
-                  (if null $ takeExtension test_name'
-                   then exeExtension
-                   else "")]
+       TestSuite{test_name=test_name',cabalFile=f} -> do
+         pd <- cabal_package f
+         let ex0 = filter ((test_name' ==) . PD.testName) (PD.testSuites pd)
+         case ex0 of
+           [ts] -> case PD.testInterface ts of
+                     PD.TestSuiteExeV10 _ _ -> return ["-o", odir </> test_name' <.>
+                                                               (if null $ takeExtension test_name'
+                                                                   then exeExtension
+                                                                   else "")]
+                     _                      -> return []
+           _    -> error "Zero or more than one testsuites with the same name"
 #endif
-       _ -> []
+       _ -> return []
 
 fromJustD :: [Char] -> Maybe a -> a
 fromJustD msg Nothing=error msg
