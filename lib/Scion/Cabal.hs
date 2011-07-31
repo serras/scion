@@ -521,11 +521,8 @@ configureCabalProject root_dir dist_dir = do
            { configDistPref = Flag dist_dir
            , configVerbosity = Flag V.deafening
            , configUserInstall = Flag True
-#if CABAL_VERSION > 108           
+#if CABAL_VERSION > 108
            , configTests = Flag True
-#endif
-#if CABAL_VERSION > 110
-           , configLibCoverage = Flag True
 #endif
            , configConfigurationsFlags = map (\(n,v)->(PD.FlagName n,v)) user_flags
            }
