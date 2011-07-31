@@ -258,7 +258,7 @@ cabalDynFlags component = do
    lbi <- cabal_build_info (cabalFile component)
    bi <- component_build_info component (localPkgDescr lbi)
    let odir0 = buildDir lbi
-   let odir 
+   let odir
          | Executable {exe_name=exeName'} <- component
            = odir0 </> dropExtension exeName'
 #if CABAL_VERSION > 108
@@ -310,7 +310,7 @@ cabalDynFlags component = do
                    then exeExtension
                    else "")]
 #if CABAL_VERSION > 108
-       TestSuite{test_name=test_name'} ->
+       TestSuite{test_name=test_name',testInterface=TestSuiteExeV10} ->
          ["-o", odir </> test_name' <.>
                   (if null $ takeExtension test_name'
                    then exeExtension
