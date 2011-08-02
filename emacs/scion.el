@@ -2263,7 +2263,7 @@ forces it to be off.  NIL toggles the current state."
      (let ((rslt (scion-eval `(thing-at-point :file ,filename 
 					      :line ,line 
 					      :column ,col))))
-       (funcall (lambda (r) (format "%s" (cadr r))) rslt)))))
+       rslt))))
 
 (defun scion-dump-sources ()
   (interactive)
