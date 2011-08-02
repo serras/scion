@@ -37,17 +37,23 @@ import Data.Maybe
 import qualified Data.Map as DM
 import System.Directory ( doesFileExist, getDirectoryContents,
                           getModificationTime, removeFile )
-import System.FilePath ( (</>), dropFileName, takeExtension,dropExtension,(<.>) )
+import System.FilePath ( (</>), dropFileName, takeExtension, dropExtension, (<.>) )
 import System.Exit ( ExitCode(..) )
 
 import qualified Distribution.ModuleName as PD
                        ( ModuleName, components )
 -- FIXME: unused import Distribution.Simple.Configure
 import Distribution.Simple.GHC ( ghcOptions )
+#if CABAL_VERSION > 110
+import Distribution.Simple.LocalBuildInfo hiding ( libdir, Component(..) )
+#else
 import Distribution.Simple.LocalBuildInfo hiding ( libdir )
+#endif
 import Distribution.Simple.Build ( initialBuildSteps )
 import Distribution.Simple.BuildPaths ( exeExtension )
+#if CABAL_VERSION < 112
 import Distribution.Simple.PreProcess ( knownSuffixHandlers )
+#endif
 import qualified Distribution.PackageDescription as PD
 import Distribution.Package
 import Distribution.InstalledPackageInfo
@@ -252,7 +258,7 @@ cabalDynFlags component = do
    lbi <- cabal_build_info (cabalFile component)
    bi <- component_build_info component (localPkgDescr lbi)
    let odir0 = buildDir lbi
-   let odir 
+   let odir
          | Executable {exe_name=exeName'} <- component
            = odir0 </> dropExtension exeName'
 #if CABAL_VERSION > 108
@@ -277,7 +283,8 @@ cabalDynFlags component = do
            = fromJustD "library" $ libraryConfig lbi
    let opts = ghcOptions lbi bi clbi odir
 #endif
-   return $ opts ++ output_file_opts odir
+   o_file_opts <- output_file_opts odir
+   return $ opts ++ o_file_opts
  where
    component_build_info Library{} pd
      | Just lib <- PD.library pd = return (PD.libBuildInfo lib)
@@ -299,18 +306,23 @@ cabalDynFlags component = do
    output_file_opts odir =
      case component of
        Executable{exe_name=exeName'} -> 
-         ["-o", odir </> exeName' <.>
-                  (if null $ takeExtension exeName'
-                   then exeExtension
-                   else "")]
+         return ["-o", odir </> exeName' <.> (if null $ takeExtension exeName'
+                                                 then exeExtension
+                                                 else "")]
 #if CABAL_VERSION > 108
-       TestSuite{test_name=test_name'} ->
-         ["-o", odir </> test_name' <.>
-                  (if null $ takeExtension test_name'
-                   then exeExtension
-                   else "")]
+       TestSuite{test_name=test_name',cabalFile=f} -> do
+         pd <- cabal_package f
+         let ex0 = filter ((test_name' ==) . PD.testName) (PD.testSuites pd)
+         case ex0 of
+           [ts] -> case PD.testInterface ts of
+                     PD.TestSuiteExeV10 _ _ -> return ["-o", odir </> test_name' <.>
+                                                               (if null $ takeExtension test_name'
+                                                                   then exeExtension
+                                                                   else "")]
+                     _                      -> return []
+           _    -> error "Zero or more than one testsuites with the same name"
 #endif
-       _ -> []
+       _ -> return []
 
 fromJustD :: [Char] -> Maybe a -> a
 fromJustD msg Nothing=error msg
@@ -466,7 +478,11 @@ preprocessPackage :: FilePath
 preprocessPackage dist_dir = do
   lbi <- liftIO $ getPersistBuildConfig (localBuildInfoFile dist_dir)
   let pd = localPkgDescr lbi
+#if CABAL_VERSION > 110
+  liftIO $ initialBuildSteps dist_dir pd lbi V.normal
+#else
   liftIO $ initialBuildSteps dist_dir pd lbi V.normal knownSuffixHandlers
+#endif
   return ()
 
 cabalModuleNameToTarget :: PD.ModuleName -> Target
@@ -511,7 +527,7 @@ configureCabalProject root_dir dist_dir = do
            { configDistPref = Flag dist_dir
            , configVerbosity = Flag V.deafening
            , configUserInstall = Flag True
-#if CABAL_VERSION > 108           
+#if CABAL_VERSION > 108
            , configTests = Flag True
 #endif
            , configConfigurationsFlags = map (\(n,v)->(PD.FlagName n,v)) user_flags
@@ -529,8 +545,11 @@ configureCabalProject root_dir dist_dir = do
                            config_flags
 #endif
      liftIO $ writePersistBuildConfig dist_dir lbi
+#if CABAL_VERSION > 110
      liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal
-                            knownSuffixHandlers
+#else
+     liftIO $ initialBuildSteps dist_dir (localPkgDescr lbi) lbi V.normal knownSuffixHandlers
+#endif
      return lbi
  where
    find_cabal_file = do
