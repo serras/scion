@@ -455,21 +455,14 @@ tokensArbitraryPreceding :: FilePath     -- ^ Project root or base directory for
                            -> Bool      -- ^ Literate source flag (True = literate, False = ordinary)
                            -> ScionM (Either Note [TokenDef])
 tokensArbitraryPreceding projectRoot contents ntoks line column literate =
-  let -- Convert line/column to a token location
-      tokLocation = mkLocPointForSource interactive line column
-      -- Get the list of tokens up to the token that overlaps the specified location
-      tokensPreceding :: [TokenDef] -> [TokenDef]
-      tokensPreceding toks = 
-        let prefix = takeWhile beforeTok toks
-            prefixLen = length prefix
-            requiredPrefixLen
-              | prefixLen > ntoks
-              = prefixLen - ntoks
-              | otherwise
-              = prefixLen
-        in  drop requiredPrefixLen prefix
-      beforeTok (TokenDef _ span) = (tokLocation >= span) || overlapLoc tokLocation span
-  in generateHaskellLexerTokens projectRoot contents literate tokensPreceding
+  do let tokLocation = mkLocPointForSource interactive line column
+         beforeTok (TokenDef _ span) = (tokLocation >= span) || overlapLoc tokLocation span
+     pretoks <- generateHaskellLexerTokens projectRoot contents literate id
+     let beforetoks = applyInEither id (filter beforeTok) pretoks
+         toks = applyInEither id (reverse . take ntoks . reverse) beforetoks
+     return toks
+  where applyInEither :: (a -> b) -> (c -> d) -> Either a c -> Either b d
+        applyInEither f g = either (Left . f) (Right . g)
   
 tokenArbitraryAtPoint :: FilePath -- ^ Project root or base directory for absolute path conversion
                       -> String   -- ^ Contents to be parsed
